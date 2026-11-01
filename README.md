@@ -45,11 +45,24 @@ make dev
 | `make smoke` | Assert the Compose stack is healthy within 120s |
 | `make docker-down` | Stop the stack and remove volumes |
 
+## Working on the project
+
+1. Read [`AGENTS.md`](AGENTS.md) — the mandatory workflow, rules, and commands.
+2. Read [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md) — current status,
+   decisions, environment quirks, risks, and open questions.
+3. Pick the next task from [`docs/plan.md`](docs/plan.md).
+
+Every task commit **must** update `docs/PROJECT_CONTEXT.md` (status, decisions,
+verification) and add the task ID to the commit message. The PR checklist in
+[`.github/pull_request_template.md`](.github/pull_request_template.md) enforces
+the rest.
+
 ## Layout
 
 - `backend/` — FastAPI, SQLAlchemy 2.0 async, Alembic, Celery.
 - `frontend/` — Next.js 15 App Router, TypeScript, Tailwind, Vitest.
-- `docs/` — product requirements, plan, testing strategy, architecture.
+- `docs/` — requirements, plan, testing strategy, architecture, project context.
+- `AGENTS.md` — contributor and coding-agent rules.
 - `docker-compose.yml` — local full stack.
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for configuration, logging, and

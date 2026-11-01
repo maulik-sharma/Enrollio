@@ -27,7 +27,9 @@
 ├── docker-compose.yml       # api, web, worker, db, redis, minio
 ├── Makefile                 # dev, test, lint, migrate, seed, smoke
 ├── .env.example
+├── AGENTS.md                # workflow rules for contributors and agents
 └── docs/
+    ├── PROJECT_CONTEXT.md   # living status, decisions, risks, handoff
 ```
 
 The plan's Section 0.2 tree is respected, with one deliberate deviation: Python
@@ -116,19 +118,21 @@ Migrations are the only way schema changes are applied; the API container runs
 
 Integration tests auto-skip when PostgreSQL or Redis is unreachable, so the
 unit suite runs anywhere. CI provides both services and therefore runs every
-test. The first migration test upgrades, downgrades, and re-upgrades the schema.
+test. The first migration test upgrades, downgrades, and re-upgrades the schema
+against the configured database, which is why a dedicated test database is
+required before M1.1 — see risk R-001 in
+[`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md#7-known-risks-and-pending-fixes).
 
 CI (`.github/workflows/ci.yml`) runs backend lint/type-check/tests against
 `pgvector/pgvector:pg16` and Redis service containers, frontend
 lint/type-check/tests/build, and Docker image builds.
 
-## 8. Milestone M0 decisions
+## 8. Decisions, status, and handoff
 
-- Python 3.12, dependencies pinned in `requirements*.txt`.
-- `pip` + `venv` (with `make install-backend`) rather than Poetry/uv lockfiles.
-- npm for the frontend; Vitest + Testing Library for unit tests (Playwright
-  arrives with the first end-to-end flow).
-- Provider enums are generic (`mock`, `openai`, `anthropic`, `ses`,
-  `sendgrid`, …); no vendor SDK is committed yet.
-- shadcn/ui, TanStack Query, React Hook Form, and Zod are intentionally not
-  installed until a milestone needs them.
+This document describes the resulting design. The **decision log with rationale**,
+current milestone status, environment quirks, known risks, and open engineering
+questions live in [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md). Workflow rules for
+contributors and coding agents are in [`../AGENTS.md`](../AGENTS.md).
+
+When a decision changes the design: append the decision to
+`PROJECT_CONTEXT.md` first, then update the relevant section here.
