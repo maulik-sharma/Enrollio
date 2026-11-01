@@ -1,0 +1,10 @@
+# Runtime dependencies for the Enrollio API.
+fastapi==0.162.0
+uvicorn[standard]==0.54.0
+pydantic==2.14.2
+pydantic-settings==2.16.2
+sqlalchemy[asyncio]==2.1.6
+asyncpg==0.32.0
+alembic==1.20.1
+redis==6.4.0
+celery[redis]==5.6.3
