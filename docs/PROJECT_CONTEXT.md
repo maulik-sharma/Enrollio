@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-01, after the M0 task commits (last code commit `7c5a9e7`)
-- **Current position:** M0 complete → **next task M1.1**
+- **Last updated:** 2026-11-01, after `M1.0` (test database isolation)
+- **Current position:** M0 complete · M1.0 complete → **next task M1.1**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -25,7 +25,7 @@ project is operated, and what is still open.
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01 |
-| M1 Identity and RBAC | ⬜ Not started | Next: M1.1 data model for users/roles/permissions |
+| M1 Identity and RBAC | 🚧 In progress | M1.0 complete; next: M1.1 data model for users/roles/permissions |
 | M2 Lead CRM and ingestion | ⬜ Not started | |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
@@ -43,13 +43,20 @@ project is operated, and what is still open.
 | M0.4 Logging and PII masking | ✅ | JSON logs, request IDs, masking filter on all handlers |
 | M0.5 CI pipeline | ✅ written / ⚠️ not executed | Workflow for lint, types, tests with PG+Redis services, frontend build, Docker builds; requires a push |
 
+### M1 task detail
+
+| Task | Status | What exists |
+| --- | --- | --- |
+| M1.0 Test database isolation (R-001) | ✅ | `enrollio_test` created by Compose init / `make create-test-db`; `TEST_DATABASE_URL`; destructive migration test refuses non-`_test` databases; sentinel test proves the dev database survives |
+
 ### Verification snapshot (2026-11-01)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy, eslint)
 make typecheck            pass (mypy strict, tsc --noEmit)
-make test                 33 backend tests pass, 1 frontend test passes
+make test                 40 backend tests pass, 1 frontend test passes
 make migrate              pass (0001 applied)
+make migrate-test         pass (0001 applied to enrollio_test)
 make seed                 pass (no-op until M1.1)
 make smoke                6/6 services healthy within 120s
 docker compose build      backend + web images build
@@ -63,12 +70,17 @@ Reproduce integration tests:
 
 ```bash
 docker compose up -d --wait db redis
+make create-test-db
 make migrate
+make migrate-test
 make test-backend
 docker compose down -v
 ```
 
-Without Postgres/Redis the integration tests **skip** (see §6); CI supplies both.
+Without Postgres/Redis the integration tests **skip**; in CI they fail instead
+so a broken service container cannot pass silently. The migration test always
+uses `TEST_DATABASE_URL` and refuses a database whose name does not end in
+`_test` (R-001).
 
 ## 3. Decisions log
 
@@ -89,6 +101,8 @@ not taken.
 | D-010 | Health endpoints are public and excluded from OpenAPI; no auth until M1 | Correct for M0 scope; probes must not require credentials | Token-protected probes |
 | D-011 | Compose uses `minioadmin`/`enrollio` dev credentials as defaults; real deployments must override them | Local one-command startup; `.env` is gitignored | Forcing users to create secrets |
 | D-012 | `AGENTS.md` + this file are the shared context; every task updates this file | Prevent multiple contributors/agents from diverging | Rely on chat history / architecture doc alone |
+| D-013 | Integration tests use a dedicated `enrollio_test` database via `TEST_DATABASE_URL`; there is no fallback to `DATABASE_URL`, and destructive migration tests fail unless the database name ends in `_test` | Makes R-001 impossible: `make test` can no longer wipe development data | Shared database, testcontainers |
+| D-014 | Locally, unreachable Postgres/Redis skips integration tests; when `CI=true` the same condition fails | Keeps laptops usable without Docker while preventing a silent CI pass | Always skip, always fail |
 
 ## 4. Architecture in one paragraph
 
@@ -115,9 +129,10 @@ mock. Frontend is a separate Next.js app. Full detail:
 - **MinIO:** official images are unavailable; see D-006. `curl` exists in the
   pinned image, which the healthcheck relies on.
 - **Integration test detection:** `backend/tests/conftest.py` probes the host/port
-  of `TEST_DATABASE_URL`/`TEST_REDIS_URL` (falling back to
-  `DATABASE_URL`/`REDIS_URL`, then localhost) and skips if closed.
-- **Seed:** `make seed` is a deliberate no-op until M1.1 adds roles.
+  of `TEST_DATABASE_URL`/`TEST_REDIS_URL` (Redis falls back to `REDIS_URL`) and
+  skips if closed. The database never falls back to `DATABASE_URL`; its name must
+  end in `_test`. Use `make create-test-db` once per fresh volume and
+  `make migrate-test` after adding migrations.- **Seed:** `make seed` is a deliberate no-op until M1.1 adds roles.
 - **Local `.env`:** created from `.env.example`; it is gitignored and must stay
   that way.
 
@@ -146,7 +161,7 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 
 | ID | Risk / gap | Action |
 | --- | --- | --- |
-| R-001 | **Integration tests use the dev database.** Once tables exist, `test_migrations.py`'s `downgrade base` will delete dev data | Fix **before M1.1 adds tables**: use a dedicated `enrollio_test` database via `TEST_DATABASE_URL`, create it in Compose/CI, and make the migration test require it |
+| R-001 | ~~**Integration tests use the dev database.**~~ **Resolved by D-013 (M1.0).** Tests now use `enrollio_test`, the migration test refuses non-`_test` names, and a sentinel test proves the dev database survives | Done; keep the guard |
 | R-002 | `docs/plan.md` M0.5's "deliberately failing test" gate has never run, because nothing is pushed | Keep the workflow green locally; verify on the first push/PR (see Q-003) |
 | R-003 | MinIO is served by a third-party mirror | Tag is pinned; image only exposes the S3 API. If unavailable, switch to another S3-compatible image (D-006) |
 | R-004 | No authentication or RBAC yet | Do not expose the API beyond localhost until M1 lands |
@@ -162,7 +177,7 @@ These are engineering decisions; product/college questions stay in
 | ID | Question | Needed by |
 | --- | --- | --- |
 | Q-001 | Which real LLM provider (primary + fallback) and email provider should be the first non-mock adapters? | M3.1 / M4.4 |
-| Q-002 | Confirm the test-database strategy in R-001 (separate local DB vs testcontainers) | Before M1.1 |
+| Q-002 | ~~Confirm the test-database strategy in R-001~~ **Resolved in M1.0:** dedicated `enrollio_test` database (D-013) | — |
 | Q-003 | When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run? | Before the first collaborative change |
 | Q-004 | If the PIGSTY MinIO mirror disappears, which S3-compatible image is the fallback? | When D-006 needs revisiting |
 | Q-005 | Should `make dev` eventually run migrations automatically, or stay explicit (`make migrate`)? | M1.1 |
@@ -197,3 +212,4 @@ Checklist for every task commit:
 | Date | Change |
 | --- | --- |
 | 2026-11-01 | Context system created (`AGENTS.md` + this file). Milestone M0 recorded as complete; M1.1 identified as next. |
+| 2026-11-01 | M1.0: dedicated `enrollio_test` database, destructive-migration guard, CI/Compose creation, isolation test. R-001 and Q-002 resolved. |

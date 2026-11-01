@@ -85,6 +85,9 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     DATABASE_URL: str = "postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio"
+    # Integration tests must never run against DATABASE_URL: the migration test
+    # downgrades to base. This database name must end with `_test`.
+    TEST_DATABASE_URL: str = "postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio_test"
     REDIS_URL: str = "redis://localhost:6379/0"
 
     JWT_SECRET: SecretStr = SecretStr("")

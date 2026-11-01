@@ -116,12 +116,13 @@ Migrations are the only way schema changes are applied; the API container runs
 | Integration | `backend/tests/integration` | PostgreSQL and Redis |
 | Frontend unit | `frontend/tests` | Node only |
 
-Integration tests auto-skip when PostgreSQL or Redis is unreachable, so the
-unit suite runs anywhere. CI provides both services and therefore runs every
-test. The first migration test upgrades, downgrades, and re-upgrades the schema
-against the configured database, which is why a dedicated test database is
-required before M1.1 — see risk R-001 in
-[`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md#7-known-risks-and-pending-fixes).
+Integration tests use a dedicated `enrollio_test` database through
+`TEST_DATABASE_URL`; they never touch `DATABASE_URL`. Locally, unreachable
+PostgreSQL or Redis skips the tests so the unit suite runs anywhere; in CI
+(`CI=true`) the same condition fails instead. `make create-test-db` creates the
+database and `make migrate-test` applies migrations to it. The migration test
+upgrades, downgrades, and re-upgrades the test schema and refuses to run when
+the database name does not end in `_test` (R-001, D-013).
 
 CI (`.github/workflows/ci.yml`) runs backend lint/type-check/tests against
 `pgvector/pgvector:pg16` and Redis service containers, frontend

@@ -13,6 +13,7 @@ env:
   PYTHON_VERSION: "3.12"
   NODE_VERSION: "22"
   DATABASE_URL: postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio
+  TEST_DATABASE_URL: postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio_test
   REDIS_URL: redis://localhost:6379/0
 
 jobs:
@@ -54,6 +55,9 @@ jobs:
       - name: Install dependencies
         working-directory: backend
         run: pip install -r requirements-dev.txt
+
+      - name: Create integration-test database
+        run: PGPASSWORD=enrollio psql -h localhost -U enrollio -d postgres -c 'CREATE DATABASE enrollio_test'
 
       - name: Lint (ruff)
         working-directory: backend

@@ -7,10 +7,11 @@ PYTHON ?= python3.12
 VENV := $(BACKEND_DIR)/.venv
 PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
+TEST_DATABASE_URL ?= postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio_test
 
 .PHONY: help install install-backend install-frontend dev test test-backend test-frontend \
 	lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
-	format migrate seed docker-up docker-down docker-logs smoke
+	format migrate migrate-test seed create-test-db docker-up docker-down docker-logs smoke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-18s %s\n", $$1, $$2}'
@@ -63,6 +64,12 @@ format: ## Auto-format the backend
 
 migrate: ## Apply database migrations
 	cd $(BACKEND_DIR) && .venv/bin/alembic upgrade head
+
+migrate-test: ## Apply migrations to the integration-test database
+	cd $(BACKEND_DIR) && DATABASE_URL="$(TEST_DATABASE_URL)" .venv/bin/alembic upgrade head
+
+create-test-db: ## Create the dedicated integration-test database
+	./scripts/create_test_db.sh
 
 seed: ## Load seed data
 	cd $(BACKEND_DIR) && .venv/bin/python -m app.seed

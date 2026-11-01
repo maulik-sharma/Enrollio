@@ -1,4 +1,8 @@
-"""Migration tests: the first migration enables extensions and is reversible."""
+"""Migration tests: the first migration enables extensions and is reversible.
+
+These tests run against ``TEST_DATABASE_URL`` and deliberately refuse to touch a
+database whose name does not end with ``_test`` (risk R-001).
+"""
 
 from __future__ import annotations
 
@@ -7,10 +11,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from tests.conftest import requires_postgres
+from tests.conftest import is_test_database, requires_postgres
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 EXPECTED_EXTENSIONS = {"vector", "btree_gist", "pgcrypto"}
@@ -41,6 +46,12 @@ async def _installed_extensions(database_url: str) -> set[str]:
 
 @requires_postgres
 async def test_extensions_enabled_and_migration_is_reversible(database_url: str) -> None:
+    if not is_test_database(database_url):
+        pytest.fail(
+            "Refusing to run a destructive migration test against "
+            f"{database_url!r}: the database name must end with '_test' (R-001)."
+        )
+
     _run_alembic("downgrade", "base", database_url=database_url)
     _run_alembic("upgrade", "head", database_url=database_url)
 
