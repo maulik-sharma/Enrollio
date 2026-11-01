@@ -10,7 +10,8 @@ from pydantic import SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
-ENV_FILE = BACKEND_DIR / ".env"
+# One .env at the repository root, shared by the backend and Docker Compose.
+ENV_FILE = BACKEND_DIR.parent / ".env"
 
 # Values shipped in `.env.example`. They are safe for local development but must
 # never reach a production deployment.

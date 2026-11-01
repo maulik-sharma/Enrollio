@@ -7,7 +7,13 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import EmailProvider, Environment, LLMProvider, Settings
+from app.core.config import (
+    ENV_FILE,
+    EmailProvider,
+    Environment,
+    LLMProvider,
+    Settings,
+)
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 ENV_EXAMPLE = ROOT_DIR / ".env.example"
@@ -92,6 +98,10 @@ def test_mock_flags_and_providers_default_to_mock(clean_env: None) -> None:
     assert all(getattr(settings, flag) is True for flag in MOCK_FLAGS)
     assert settings.LLM_PROVIDER is LLMProvider.mock
     assert settings.EMAIL_PROVIDER is EmailProvider.mock
+
+
+def test_env_file_points_at_the_repository_root() -> None:
+    assert ENV_FILE == ROOT_DIR / ".env"
 
 
 def test_env_example_is_loadable_and_complete() -> None:

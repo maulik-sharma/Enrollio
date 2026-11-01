@@ -57,8 +57,8 @@ healthy API. `make smoke` asserts every service is healthy within 120 seconds.
 ## 3. Configuration
 
 `app/core/config.py` defines a single Pydantic Settings model. Values are read
-from environment variables and, for local development, `backend/.env`
-(`.env.example` at the repository root is the canonical template).
+from environment variables and, for local development, the repository-root
+`.env` (`.env.example` is the canonical template).
 
 Rules:
 
