@@ -10,7 +10,7 @@ PIP := $(VENV)/bin/pip
 
 .PHONY: help install install-backend install-frontend dev test test-backend test-frontend \
 	lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
-	format migrate seed docker-up docker-down docker-logs
+	format migrate seed docker-up docker-down docker-logs smoke
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "%-18s %s\n", $$1, $$2}'
@@ -75,3 +75,6 @@ docker-down: ## Stop the local stack and remove volumes
 
 docker-logs: ## Follow logs from all services
 	docker compose logs -f
+
+smoke: ## Start the stack and assert every service is healthy within 120s
+	./scripts/smoke_compose.sh

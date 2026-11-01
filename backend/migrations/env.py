@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
 from logging.config import fileConfig
 
 from alembic import context
@@ -11,6 +10,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from app.core.config import get_settings
 from app.models.base import Base
 
 config = context.config
@@ -18,8 +18,7 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-DEFAULT_DATABASE_URL = "postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio"
-config.set_main_option("sqlalchemy.url", os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL))
+config.set_main_option("sqlalchemy.url", get_settings().DATABASE_URL)
 
 target_metadata = Base.metadata
 
