@@ -40,13 +40,19 @@ decision), while `pyproject.toml` holds only tool configuration.
 | --- | --- | --- | --- |
 | `db` | `pgvector/pgvector:pg16` | 5432 | PostgreSQL 16 with pgvector |
 | `redis` | `redis:7-alpine` | 6379 | Celery broker/result backend |
-| `minio` | `minio/minio` | 9000 / 9001 | S3-compatible object storage |
+| `minio` | `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` | 9000 / 9001 | S3-compatible object storage |
 | `api` | `backend/Dockerfile` | 8000 | FastAPI; runs migrations then Uvicorn |
 | `worker` | `backend/Dockerfile` | – | Celery worker |
 | `web` | `frontend/Dockerfile` | 3000 | Next.js production server |
 
 The API waits for healthy `db`, `redis`, and `minio`. The web app waits for a
 healthy API. `make smoke` asserts every service is healthy within 120 seconds.
+
+> **MinIO image note:** MinIO's official images were removed from Docker Hub
+> (`minio/minio` now returns 404) and `quay.io/minio/minio` requires
+> authentication. Compose uses the PIGSTY mirror, pinned to a release tag. If
+> the mirror becomes unavailable, swap the tag for another MinIO mirror or a
+> different S3-compatible server; the application only depends on the S3 API.
 
 ## 3. Configuration
 
