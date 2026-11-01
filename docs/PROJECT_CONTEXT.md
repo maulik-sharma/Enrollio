@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-01, after `M1.0` (test database isolation)
-- **Current position:** M0 complete · M1.0 complete → **next task M1.1**
+- **Last updated:** 2026-11-01, after `M1.1` (identity data model)
+- **Current position:** M0 complete · M1.0–M1.1 complete → **next task M1.2**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -25,7 +25,7 @@ project is operated, and what is still open.
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01 |
-| M1 Identity and RBAC | 🚧 In progress | M1.0 complete; next: M1.1 data model for users/roles/permissions |
+| M1 Identity and RBAC | 🚧 In progress | M1.0–M1.1 complete; next: M1.2 authentication |
 | M2 Lead CRM and ingestion | ⬜ Not started | |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
@@ -48,13 +48,14 @@ project is operated, and what is still open.
 | Task | Status | What exists |
 | --- | --- | --- |
 | M1.0 Test database isolation (R-001) | ✅ | `enrollio_test` created by Compose init / `make create-test-db`; `TEST_DATABASE_URL`; destructive migration test refuses non-`_test` databases; sentinel test proves the dev database survives |
+| M1.1 Users, roles, permissions | ✅ | Migration `0002`; 17 permissions and 3 roles in `app/core/permissions.py`; idempotent `make seed`; Argon2id password hashing; three dev demo accounts |
 
 ### Verification snapshot (2026-11-01)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy, eslint)
 make typecheck            pass (mypy strict, tsc --noEmit)
-make test                 40 backend tests pass, 1 frontend test passes
+make test                 52 backend tests pass, 1 frontend test passes
 make migrate              pass (0001 applied)
 make migrate-test         pass (0001 applied to enrollio_test)
 make seed                 pass (no-op until M1.1)
@@ -103,6 +104,10 @@ not taken.
 | D-012 | `AGENTS.md` + this file are the shared context; every task updates this file | Prevent multiple contributors/agents from diverging | Rely on chat history / architecture doc alone |
 | D-013 | Integration tests use a dedicated `enrollio_test` database via `TEST_DATABASE_URL`; there is no fallback to `DATABASE_URL`, and destructive migration tests fail unless the database name ends in `_test` | Makes R-001 impossible: `make test` can no longer wipe development data | Shared database, testcontainers |
 | D-014 | Locally, unreachable Postgres/Redis skips integration tests; when `CI=true` the same condition fails | Keeps laptops usable without Docker while preventing a silent CI pass | Always skip, always fail |
+| D-015 | The RBAC catalog lives in `app/core/permissions.py`: 17 permissions taken verbatim from PRD §4, three roles, exact matrix; the seed writes this catalog and replaces role-permission links for seeded roles | One source of truth for tests, seed, and future `require_permission` checks; PRD is the authority | Permissions scattered across routers; wildcard admin |
+| D-016 | Identity tables use UUID v4 primary keys (`gen_random_uuid()`), `timestamptz` timestamps, and lowercased unique emails enforced by a CHECK; services normalise before writing | Stable public identifiers, deterministic ordering, and case-insensitive login without a `citext` dependency | Bigint IDs, `citext` |
+| D-017 | `make seed` also creates three `@example.test` demo accounts (admin, manager, counsellor) with one `SEED_DEMO_PASSWORD`, only when `SEED_DEMO_USERS` is true and never in production | M1.5 needs three roles to demonstrate different menus; avoids a manual setup step | Roles only; separate fixture script |
+| D-018 | Argon2id parameters are settings (`ARGON2_*`); tests lower them, production defaults stay at 3 passes / 64 MiB / 4 lanes | Real hashing in production without a slow test suite | Hardcoded parameters |
 
 ## 4. Architecture in one paragraph
 
@@ -132,7 +137,8 @@ mock. Frontend is a separate Next.js app. Full detail:
   of `TEST_DATABASE_URL`/`TEST_REDIS_URL` (Redis falls back to `REDIS_URL`) and
   skips if closed. The database never falls back to `DATABASE_URL`; its name must
   end in `_test`. Use `make create-test-db` once per fresh volume and
-  `make migrate-test` after adding migrations.- **Seed:** `make seed` is a deliberate no-op until M1.1 adds roles.
+  `make migrate-test` after adding migrations.- **Seed:** `make seed` now upserts the RBAC catalog and creates the three demo
+  accounts. It is idempotent; `SEED_DEMO_USERS=false` keeps accounts out.
 - **Local `.env`:** created from `.env.example`; it is gitignored and must stay
   that way.
 
@@ -213,3 +219,4 @@ Checklist for every task commit:
 | --- | --- |
 | 2026-11-01 | Context system created (`AGENTS.md` + this file). Milestone M0 recorded as complete; M1.1 identified as next. |
 | 2026-11-01 | M1.0: dedicated `enrollio_test` database, destructive-migration guard, CI/Compose creation, isolation test. R-001 and Q-002 resolved. |
+| 2026-11-01 | M1.1: users/roles/permissions migration, permission catalog and role matrix, idempotent seed, Argon2id hashing, demo accounts. |

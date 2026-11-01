@@ -94,6 +94,22 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    LOGIN_MAX_FAILURES: int = 5
+    LOGIN_FAILURE_WINDOW_MINUTES: int = 15
+    LOGIN_LOCKOUT_MINUTES: int = 15
+
+    # Password hashing. Tests lower these values to keep the suite fast.
+    ARGON2_TIME_COST: int = 3
+    ARGON2_MEMORY_COST: int = 65536
+    ARGON2_PARALLELISM: int = 4
+
+    # Browser origins allowed to call the API with credentials.
+    CORS_ORIGINS: str = "http://localhost:3000"
+
+    # Development-only demo accounts. Never enabled in production.
+    # `.env.example` turns this on for local development.
+    SEED_DEMO_USERS: bool = False
+    SEED_DEMO_PASSWORD: SecretStr = SecretStr("dev-only-password")
 
     LLM_PROVIDER: LLMProvider = LLMProvider.mock
     LLM_API_KEY: SecretStr | None = None
@@ -140,6 +156,9 @@ class Settings(BaseSettings):
 
         missing: list[str] = []
 
+        if self.SEED_DEMO_USERS:
+            raise ValueError("SEED_DEMO_USERS must be false in production")
+
         if self._is_placeholder(self.JWT_SECRET):
             missing.append("JWT_SECRET")
 
@@ -179,6 +198,11 @@ class Settings(BaseSettings):
             )
 
         return self
+
+    @property
+    def cors_origin_list(self) -> list[str]:
+        """CORS origins as a list, split on commas."""
+        return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
 
     @staticmethod
     def _is_placeholder(value: SecretStr | str | None) -> bool:
