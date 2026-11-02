@@ -135,6 +135,25 @@ enforcement arrives in M1.3.
 - The real cross-counsellor database test is deferred to M2.1, when the `leads`
   table exists (Q-006 in [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md)).
 
+### User and role administration
+
+| Endpoint | Permission | Behaviour |
+| --- | --- | --- |
+| `GET /api/users` | `users.manage` | List accounts with roles (`limit`/`offset`) |
+| `POST /api/users` | `users.manage` | Create an active user; email normalised; role slugs validated |
+| `PATCH /api/users/{id}` | `users.manage` | Update name, password, roles, or active state |
+| `POST /api/users/{id}/deactivate` | `users.manage` | Deactivate and revoke sessions (idempotent) |
+| `GET /api/roles` | `users.manage` | Roles with their permission names, for the role picker |
+| `PUT /api/roles/{id}/permissions` | `roles.manage` | Replace the role's permission set |
+
+Services own the rules (`app/services/users.py`, `app/services/roles.py`);
+routers only map domain errors: duplicate email → 409, unknown role or
+permission → 400, missing user or role → 404. Deactivation and password changes
+revoke every refresh token for the user, and `get_current_user` reloads the
+account on each request, so existing access tokens stop working immediately
+(D-027). A guard against removing the last administrator is not implemented yet
+(R-008, Q-007).
+
 ## 7. Authentication and sessions
 
 | Endpoint | Purpose |
