@@ -1,6 +1,7 @@
 # Architecture
 
-> Status: Milestone M0 (foundation). This document is updated as milestones land.
+> Status: Milestones M0 and M1 (foundation, identity and RBAC). This document is
+> updated as milestones land.
 
 ## 1. Repository layout
 
@@ -24,6 +25,11 @@
 │   ├── requirements-dev.txt
 │   └── Dockerfile
 ├── frontend/                # Next.js 15 App Router (TypeScript, Tailwind 4)
+│   ├── app/                 # routes: `/`, `/login`, `/sections/[slug]`
+│   ├── components/          # auth provider, protected shell, navigation
+│   ├── lib/                 # API client, types, navigation catalog
+│   ├── tests/               # Vitest
+│   └── e2e/                 # Playwright
 ├── docker-compose.yml       # api, web, worker, db, redis, minio
 ├── Makefile                 # dev, test, lint, migrate, seed, smoke
 ├── .env.example
@@ -181,6 +187,23 @@ account on each request, so existing access tokens stop working immediately
 - **CORS:** `CORS_ORIGINS` (comma-separated) with credentials enabled, so the
   Next.js app can call the API from a different origin.
 
+### Frontend session handling
+
+- `lib/api.ts` keeps the access token in a module variable. It is never written
+  to `localStorage` or a cookie. `apiRequest` retries a request once after a 401
+  by calling `/api/auth/refresh`, which uses the HttpOnly cookie.
+- `components/auth-provider.tsx` restores the session on load by asking
+  `/api/auth/me` (refreshing first when needed) and exposes `user`, `loading`,
+  `login`, and `logout`.
+- `components/require-auth.tsx` redirects anonymous visitors to `/login` and
+  renders a loading state while the cookie exchange runs. This is convenience,
+  not a security boundary: the API checks every request (D-029, R-009).
+- `lib/navigation.ts` maps each menu item to one permission; the shell renders
+  only the items the user's flattened permissions allow. `/sections/[slug]` is a
+  placeholder until the corresponding module lands.
+- `NEXT_PUBLIC_API_URL` lives in `frontend/.env.example` and defaults to
+  `http://localhost:8000` (D-030).
+
 ## 8. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -195,6 +218,7 @@ Migrations are the only way schema changes are applied; the API container runs
 | Unit | `backend/tests/unit` | No infrastructure |
 | Integration | `backend/tests/integration` | PostgreSQL and Redis |
 | Frontend unit | `frontend/tests` | Node only |
+| End-to-end | `frontend/e2e` | API on `:8000`, seeded demo users, Chromium |
 
 Integration tests use a dedicated `enrollio_test` database through
 `TEST_DATABASE_URL`; they never touch `DATABASE_URL`. Locally, unreachable
@@ -203,6 +227,12 @@ PostgreSQL or Redis skips the tests so the unit suite runs anywhere; in CI
 database and `make migrate-test` applies migrations to it. The migration test
 upgrades, downgrades, and re-upgrades the test schema and refuses to run when
 the database name does not end in `_test` (R-001, D-013).
+
+Playwright (`frontend/e2e/auth.spec.ts`) drives the real stack: it logs in as
+each seeded role, asserts the role-specific menu, logs out, and confirms a
+reload cannot restore the session. `make test-e2e` runs it against a locally
+running API; CI uses a dedicated job with Postgres, Redis, migrations, seed,
+Uvicorn, and Chromium (D-031).
 
 CI (`.github/workflows/ci.yml`) runs backend lint/type-check/tests against
 `pgvector/pgvector:pg16` and Redis service containers, frontend

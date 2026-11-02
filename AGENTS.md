@@ -116,6 +116,7 @@ for status.
 | `make install` | Backend venv + frontend dependencies |
 | `make dev` | API on `:8000` and web on `:3000` |
 | `make test` | Backend pytest + frontend Vitest |
+| `make test-e2e` | Playwright auth flows (needs the API on `:8000` and seeded demo users) |
 | `make lint` | ruff, mypy, ESLint |
 | `make typecheck` | mypy + `tsc --noEmit` |
 | `make migrate` | Apply Alembic migrations |

@@ -9,7 +9,7 @@ PY := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 TEST_DATABASE_URL ?= postgresql+asyncpg://enrollio:enrollio@localhost:5432/enrollio_test
 
-.PHONY: help install install-backend install-frontend dev test test-backend test-frontend \
+.PHONY: help install install-backend install-frontend dev test test-backend test-frontend test-e2e \
 	lint lint-backend lint-frontend typecheck typecheck-backend typecheck-frontend \
 	format migrate migrate-test seed create-test-db docker-up docker-down docker-logs smoke
 
@@ -41,6 +41,9 @@ test-backend: ## Run backend tests
 
 test-frontend: ## Run frontend unit tests
 	cd $(FRONTEND_DIR) && npm test --silent
+
+test-e2e: ## Run Playwright auth flows (requires the API on :8000 with seeded demo users)
+	cd $(FRONTEND_DIR) && npm run test:e2e
 
 lint: lint-backend lint-frontend ## Lint backend and frontend
 
