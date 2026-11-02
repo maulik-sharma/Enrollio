@@ -94,7 +94,7 @@ CI verification (GitHub Actions, 2026-11-02):
 | `41387057466` | `main` push (M2.2) | ✅ all four jobs pass (backend, frontend, Playwright, Docker) |
 | `41387484976` | PR #1, deliberate `assert False` probe | ❌ backend job fails at **lint** (`B011`) — proves the lint gate blocks a merge |
 | `41387583084` | PR #1, probe rewritten as `raise AssertionError` | ❌ backend job fails at **pytest** — proves the test gate blocks a merge |
-| final PR #1 run | `m0.5-ci-gate` after probe removal | required to be green before merge (D-038) |
+| final PR #1 run | `m0.5-ci-gate` after probe removal | ✅ run `41387966429` — all four jobs pass, merged to `main` |
 
 The probe never landed on `main`: it existed only on the `m0.5-ci-gate` branch
 and was removed in the same PR that records this verification.
