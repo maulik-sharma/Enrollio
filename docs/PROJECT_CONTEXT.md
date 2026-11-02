@@ -4,7 +4,7 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-02, after `M2.2` (normalisation utilities)
+- **Last updated:** 2026-11-02, after `M0.5` (CI gate verified on GitHub Actions)
 - **Current position:** M0 · M1 complete · M2.1–M2.2 complete → **next task M2.3**
 - **Maintainers:** every contributor, in the same commit as the task
 
@@ -24,7 +24,7 @@ project is operated, and what is still open.
 
 | Milestone | Status | Notes |
 | --- | --- | --- |
-| M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01 |
+| M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
 | M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.2 complete; next: M2.3 CSV/XLSX import pipeline |
 | M3 Communication and campaigns | ⬜ Not started | |
@@ -41,7 +41,7 @@ project is operated, and what is still open.
 | M0.2 Docker Compose environment | ✅ | `api`, `web`, `worker`, `db` (pgvector/pg16), `redis`, `minio`; extension migration; `/healthz` + `/readyz`; smoke script |
 | M0.3 Configuration and secrets | ✅ | `core/config.py`, `.env.example`, production fail-fast, mock flags |
 | M0.4 Logging and PII masking | ✅ | JSON logs, request IDs, masking filter on all handlers |
-| M0.5 CI pipeline | ✅ written / ⚠️ not executed | Workflow for lint, types, tests with PG+Redis services, frontend build, Playwright e2e, Docker builds; requires a push |
+| M0.5 CI pipeline | ✅ | `.github/workflows/ci.yml` runs four jobs — backend lint/types/tests (Postgres + Redis service containers), frontend lint/types/tests/build, Playwright auth flows, Docker image builds. Gate verified: a deliberately failing commit failed CI on PR #1, removing it made CI pass (D-038) |
 
 ### M1 task detail
 
@@ -87,6 +87,18 @@ cd backend && .venv/bin/python -m pytest tests/unit/test_normalisation.py \
 # 102 passed, app/core/normalisation.py 100% (62 statements, 22 branches)
 ```
 
+CI verification (GitHub Actions, 2026-11-02):
+
+| Run | Ref | Result |
+| --- | --- | --- |
+| `41387057466` | `main` push (M2.2) | ✅ all four jobs pass (backend, frontend, Playwright, Docker) |
+| `41387484976` | PR #1, deliberate `assert False` probe | ❌ backend job fails at **lint** (`B011`) — proves the lint gate blocks a merge |
+| `41387583084` | PR #1, probe rewritten as `raise AssertionError` | ❌ backend job fails at **pytest** — proves the test gate blocks a merge |
+| final PR #1 run | `m0.5-ci-gate` after probe removal | required to be green before merge (D-038) |
+
+The probe never landed on `main`: it existed only on the `m0.5-ci-gate` branch
+and was removed in the same PR that records this verification.
+
 Reproduce integration tests:
 
 ```bash
@@ -117,7 +129,7 @@ not taken.
 | D-005 | One `.env` at the repository root, read by both the backend and Compose | Avoids two env files drifting apart | Separate `backend/.env` |
 | D-006 | `minio` service uses `pgsty/minio:RELEASE.2026-08-04T00-00-00Z` | MinIO removed official Docker Hub images (404) and quay.io now returns 401; the PIGSTY mirror keeps real MinIO behaviour | adobe/s3mock, bitnamilegacy/minio, SeaweedFS |
 | D-007 | Keep existing doc filenames (`prd.md`, `open_questions_next_steps.md`); add `ARCHITECTURE.md` | Avoid churn in documents already written | Rename to plan's uppercase names |
-| D-008 | One local commit per task, task ID in the message; no push/PR yet | User choice while pre-release; CI verifies nothing until pushed | Branch + PR per task |
+| D-008 | ~~One local commit per task, task ID in the message; no push/PR yet~~ **Superseded by D-038** | User choice while pre-release; CI verifies nothing until pushed | Branch + PR per task |
 | D-009 | `/readyz` checks PG and Redis with a 2s budget; integration tests auto-skip when they are unreachable | Local runs without infra stay green; CI runs everything | Hard-fail without infrastructure |
 | D-010 | Health endpoints are public and excluded from OpenAPI; no auth until M1 | Correct for M0 scope; probes must not require credentials | Token-protected probes |
 | D-011 | Compose uses `minioadmin`/`enrollio` dev credentials as defaults; real deployments must override them | Local one-command startup; `.env` is gitignored | Forcing users to create secrets |
@@ -147,6 +159,7 @@ not taken.
 | D-035 | `consent_records` is append-only (latest row per student/channel/category wins); `timeline_events.actor_id` is a plain UUID because the actor may be a user, agent, or system; timeline has `created_at` only | Consent needs the full grant/revoke history (AC4.4) and timeline events are immutable; one actor column cannot reference three tables | Updating consent rows in place; separate event tables per actor type |
 | D-036 | Normalisation lives in `app/core/normalisation.py`; each helper raises a `NormalisationError` subclass with a stable `code` (`invalid_email`, `invalid_phone`, `invalid_name`, `invalid_score`) | M2.3 stores those codes as import rejection reasons, so messages can change without breaking reporting | Returning `None`; string parsing of error messages |
 | D-037 | Emails are fully lowercased after `email-validator`; phones use `phonenumbers` with default region `IN` and must pass `is_valid_number`; international numbers are accepted when they carry a country code; scores become floats | Import data is messy and Indian numbers arrive in many forms; canonical values keep duplicate detection exact and country-agnostic | Storing raw input; assuming every number is Indian |
+| D-038 | The repository lives on GitHub and every task ships on a per-task branch via a pull request; `main` only moves when the PR's full four-job CI run is green (D-008 superseded) | The M0.5 gate must actually block bad code; branch protection plus a green PR is the only evidence it does | Continuing to commit to `main`; pushing without a PR |
 
 ## 4. Architecture in one paragraph
 
@@ -221,14 +234,16 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 - **Frontend:** App Router, TypeScript strict, Tailwind utilities. API calls go
   through `lib/api.ts`; authentication state lives in `components/auth-provider.tsx`;
   navigation items and their permissions in `lib/navigation.ts`.
-- **Git:** `Mx.y: summary`; never mix unrelated refactors into a task commit.
+- **Git:** `Mx.y: summary` on a per-task branch; open a pull request and merge only
+  when the full four-job CI run is green (D-038). Never mix unrelated refactors
+  into a task commit.
 
 ## 7. Known risks and pending fixes
 
 | ID | Risk / gap | Action |
 | --- | --- | --- |
 | R-001 | ~~**Integration tests use the dev database.**~~ **Resolved by D-013 (M1.0).** Tests now use `enrollio_test`, the migration test refuses non-`_test` names, and a sentinel test proves the dev database survives | Done; keep the guard |
-| R-002 | `docs/plan.md` M0.5's "deliberately failing test" gate has never run, because nothing is pushed | Keep the workflow green locally; verify on the first push/PR (see Q-003) |
+| R-002 | ~~`docs/plan.md` M0.5's "deliberately failing test" gate has never run, because nothing is pushed~~ **Resolved 2026-11-02:** runs `41387484976` and `41387583084` failed on a deliberate probe (lint and pytest respectively); `main` run `41387057466` passes all four jobs (D-038) | Keep `main` green; never merge a red PR |
 | R-003 | MinIO is served by a third-party mirror | Tag is pinned; image only exposes the S3 API. If unavailable, switch to another S3-compatible image (D-006) |
 | R-004 | ~~**No authentication or RBAC.**~~ **Resolved in M1.2–M1.3:** authentication is live, `require_permission`/`can_access_lead` are available, and M2.1 proved the cross-counsellor gate against real leads. No lead data endpoint exists yet | Every new endpoint must declare a permission and a resource scope; `/api/leads` in M2.7 is the first real test |
 | R-005 | Provider choices for M3/M4 are undecided | Answer Q-001 before M3.1; mocks keep progress unblocked |
@@ -246,7 +261,7 @@ These are engineering decisions; product/college questions stay in
 | --- | --- | --- |
 | Q-001 | Which real LLM provider (primary + fallback) and email provider should be the first non-mock adapters? | M3.1 / M4.4 |
 | Q-002 | ~~Confirm the test-database strategy in R-001~~ **Resolved in M1.0:** dedicated `enrollio_test` database (D-013) | — |
-| Q-003 | When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run? | Before the first collaborative change |
+| Q-003 | ~~When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run?~~ **Resolved 2026-11-02:** the repository is pushed, CI runs on every push and pull request, and tasks now go through per-task branches and PRs (D-038) | — |
 | Q-004 | If the PIGSTY MinIO mirror disappears, which S3-compatible image is the fallback? | When D-006 needs revisiting |
 | Q-005 | Should `make dev` eventually run migrations automatically, or stay explicit (`make migrate`)? | M1.1 |
 | Q-006 | ~~Deferred security gate: M1.3's cross-counsellor test needs the `leads` table~~ **Resolved in M2.1:** `test_lead_scope.py` creates real leads for two counsellors and proves 404 cross-scope, 200 own scope, and manager view-all | — |
@@ -290,3 +305,4 @@ Checklist for every task commit:
 | 2026-11-02 | M1.5: login page, protected shell, in-memory token with refresh-on-401, role-aware navigation, logout; Vitest and Playwright suites; e2e CI job. **Milestone M1 complete.** |
 | 2026-11-02 | M2.1: migration `0004` adds students, leads, programmes, campuses, lead sources, consent records, and timeline events; lead uniqueness and student contact keys enforced in the database; Q-006 cross-counsellor gate tested against real leads. |
 | 2026-11-02 | M2.2: email/phone/name/score normalisers with typed reason codes, `phonenumbers` dependency, 102 cases at 100% branch coverage. |
+| 2026-11-02 | M0.5: repository pushed; CI verified on GitHub Actions (green `main` run `41387057466`; deliberate probe failed lint then pytest on PR #1). R-002 and Q-003 resolved; tasks now ship on per-task branches with a green PR before merge (D-038). |

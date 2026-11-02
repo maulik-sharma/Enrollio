@@ -86,6 +86,9 @@ Then update the living docs **in the same commit**:
 - `docs/ARCHITECTURE.md`: only when the design changed.
 - `docs/plan.md` / PRD: do not edit scope; raise questions instead.
 
+Push the task branch and open a pull request; merge only after every CI job
+passes (D-038).
+
 Commit with the task ID. Update this file only when the *process* changes, not
 for status.
 
@@ -128,9 +131,8 @@ for status.
 
 - **Commits:** `<task-id>: <summary>` (e.g. `M2.3: CSV/XLSX import pipeline`).
   One task per commit. Do not mix refactors into a feature commit.
-- **Branches:** commit directly to `main` while the project is pre-release and
-  local-only; switch to per-task branches once the repository is pushed and CI
-  is enforced.
+- **Branches:** one branch and pull request per task; merge only when the full CI
+  run is green (D-038). Never commit a task directly to `main`.
 - **Python:** 3.12, type hints on public functions, ruff + mypy strict must pass.
 - **Frontend:** TypeScript strict, App Router, Tailwind. Add libraries only when
   the milestone needs them.
