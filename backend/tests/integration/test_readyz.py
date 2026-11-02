@@ -16,6 +16,7 @@ def test_healthz_returns_ok_without_dependencies() -> None:
     settings = Settings(
         DATABASE_URL="postgresql+asyncpg://nobody:nobody@127.0.0.1:1/none",
         REDIS_URL="redis://127.0.0.1:1/0",
+        JWT_SECRET="test-secret",
     )
     app = create_app(settings)
 
@@ -30,7 +31,9 @@ def test_healthz_returns_ok_without_dependencies() -> None:
 def test_readyz_returns_200_when_dependencies_are_available(
     database_url: str, redis_url: str
 ) -> None:
-    app = create_app(Settings(DATABASE_URL=database_url, REDIS_URL=redis_url))
+    app = create_app(
+        Settings(DATABASE_URL=database_url, REDIS_URL=redis_url, JWT_SECRET="test-secret")
+    )
 
     with TestClient(app) as client:
         response = client.get("/readyz")
@@ -48,6 +51,7 @@ def test_readyz_returns_503_when_database_is_unreachable(redis_url: str) -> None
         Settings(
             DATABASE_URL="postgresql+asyncpg://enrollio:enrollio@127.0.0.1:1/enrollio",
             REDIS_URL=redis_url,
+            JWT_SECRET="test-secret",
         )
     )
 

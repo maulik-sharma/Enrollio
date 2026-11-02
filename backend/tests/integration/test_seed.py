@@ -102,17 +102,46 @@ async def test_demo_users_can_log_in_with_the_seed_password(
         by_email = {user.email: user for user in users}
 
     assert set(by_email) == {
-        "admin@example.test",
-        "manager@example.test",
-        "counsellor@example.test",
+        "admin@enrollio.dev",
+        "manager@enrollio.dev",
+        "counsellor@enrollio.dev",
     }
     for user in by_email.values():
         assert verify_password("demo-password-123", user.password_hash, seed_settings)
         assert [role.slug for role in user.roles] == [
             {
-                "admin@example.test": RoleSlug.SYSTEM_ADMIN.value,
-                "manager@example.test": RoleSlug.ADMISSION_MANAGER.value,
-                "counsellor@example.test": RoleSlug.ADMISSION_COUNSELLOR.value,
+                "admin@enrollio.dev": RoleSlug.SYSTEM_ADMIN.value,
+                "manager@enrollio.dev": RoleSlug.ADMISSION_MANAGER.value,
+                "counsellor@enrollio.dev": RoleSlug.ADMISSION_COUNSELLOR.value,
             }[user.email]
         ]
         assert user.is_active is True
+
+
+@requires_postgres
+async def test_seed_removes_legacy_example_test_demo_accounts(
+    clean_database: None,
+    db_session_factory: async_sessionmaker[AsyncSession],
+    seed_settings: Settings,
+) -> None:
+    legacy = User(
+        email="admin@example.test",
+        password_hash="not-used",
+        full_name="Legacy Admin",
+    )
+    async with db_session_factory() as session:
+        session.add(legacy)
+        await session.commit()
+
+    async with db_session_factory() as session:
+        await seed_all(session, seed_settings)
+        await session.commit()
+
+    async with db_session_factory() as session:
+        emails = set((await session.execute(select(User.email))).scalars())
+
+    assert emails == {
+        "admin@enrollio.dev",
+        "manager@enrollio.dev",
+        "counsellor@enrollio.dev",
+    }

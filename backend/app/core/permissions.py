@@ -10,6 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.user import User
 
 
 class PermissionName(StrEnum):
@@ -125,3 +129,13 @@ ROLE_PERMISSIONS: dict[RoleSlug, frozenset[PermissionName]] = {
 def all_permission_names() -> tuple[PermissionName, ...]:
     """Return the catalog in a stable order."""
     return tuple(PermissionName)
+
+
+def user_permission_names(user: User) -> set[str]:
+    """Return the flattened permission names granted through the user's roles."""
+    return {permission.name for role in user.roles for permission in role.permissions}
+
+
+def user_has_permission(user: User, permission: PermissionName | str) -> bool:
+    """Return True when any of the user's roles grants ``permission``."""
+    return str(permission) in user_permission_names(user)

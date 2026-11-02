@@ -22,9 +22,17 @@ from app.models.role import Role
 from app.models.user import User
 
 DEMO_USERS: tuple[tuple[str, str, RoleSlug], ...] = (
-    ("admin@example.test", "System Admin", RoleSlug.SYSTEM_ADMIN),
-    ("manager@example.test", "Admission Manager", RoleSlug.ADMISSION_MANAGER),
-    ("counsellor@example.test", "Admission Counsellor", RoleSlug.ADMISSION_COUNSELLOR),
+    ("admin@enrollio.dev", "System Admin", RoleSlug.SYSTEM_ADMIN),
+    ("manager@enrollio.dev", "Admission Manager", RoleSlug.ADMISSION_MANAGER),
+    ("counsellor@enrollio.dev", "Admission Counsellor", RoleSlug.ADMISSION_COUNSELLOR),
+)
+
+# Demo accounts used before D-023. Seeding removes them so a development
+# database does not end up with two accounts per role.
+LEGACY_DEMO_EMAILS: tuple[str, ...] = (
+    "admin@example.test",
+    "manager@example.test",
+    "counsellor@example.test",
 )
 
 
@@ -99,6 +107,8 @@ async def seed_rbac(session: AsyncSession) -> tuple[int, int, int]:
 
 async def seed_demo_users(session: AsyncSession, settings: Settings) -> int:
     """Create the three demo accounts and their roles, without duplicates."""
+    await session.execute(delete(User).where(User.email.in_(LEGACY_DEMO_EMAILS)))
+
     password_hash = hash_password(settings.SEED_DEMO_PASSWORD.get_secret_value(), settings)
 
     for email, full_name, _ in DEMO_USERS:

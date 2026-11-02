@@ -118,7 +118,7 @@ class Settings(BaseSettings):
 
     EMAIL_PROVIDER: EmailProvider = EmailProvider.mock
     EMAIL_API_KEY: SecretStr | None = None
-    EMAIL_FROM_ADDRESS: str = "no-reply@example.test"
+    EMAIL_FROM_ADDRESS: str = "no-reply@enrollio.dev"
     EMAIL_FROM_NAME: str = "Enrollio"
     EMAIL_REPLY_DOMAIN: str = "reply.example.test"
     EMAIL_WEBHOOK_SECRET: SecretStr | None = None

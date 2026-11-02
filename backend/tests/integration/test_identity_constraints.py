@@ -37,11 +37,11 @@ async def test_duplicate_email_is_rejected(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as session:
-        session.add(_user("duplicate@example.test"))
+        session.add(_user("duplicate@enrollio.dev"))
         await session.commit()
 
     async with db_session_factory() as session:
-        session.add(_user("duplicate@example.test"))
+        session.add(_user("duplicate@enrollio.dev"))
         with pytest.raises(IntegrityError):
             await session.commit()
 
@@ -52,7 +52,7 @@ async def test_uppercase_email_is_rejected(
     db_session_factory: async_sessionmaker[AsyncSession],
 ) -> None:
     async with db_session_factory() as session:
-        session.add(_user("MixedCase@example.test"))
+        session.add(_user("MixedCase@enrollio.dev"))
         with pytest.raises(IntegrityError):
             await session.commit()
 
