@@ -1,7 +1,7 @@
 # Architecture
 
-> Status: Milestones M0 and M1 (foundation, identity and RBAC). This document is
-> updated as milestones land.
+> Status: Milestones M0, M1, and M2.1 (foundation, identity, lead CRM schema).
+> This document is updated as milestones land.
 
 ## 1. Repository layout
 
@@ -9,7 +9,7 @@
 .
 ├── backend/                 # FastAPI application (Python 3.12)
 │   ├── app/
-│   │   ├── core/            # config, logging, masking, database, Redis
+│   │   ├── core/            # config, logging, masking, database, Redis, domain enums
 │   │   ├── api/             # HTTP routers (health today, domain routers later)
 │   │   ├── models/          # SQLAlchemy 2.0 models
 │   │   ├── schemas/         # Pydantic request/response schemas
@@ -138,8 +138,8 @@ enforcement arrives in M1.3.
   use it unchanged.
 - Resource-level denial is rendered as **404**, so a caller cannot distinguish
   "exists but is not yours" from "does not exist" (D-024).
-- The real cross-counsellor database test is deferred to M2.1, when the `leads`
-  table exists (Q-006 in [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md)).
+- The cross-counsellor gate is tested against real rows in
+  `tests/integration/test_lead_scope.py` (Q-006 resolved in M2.1).
 
 ### User and role administration
 
@@ -204,14 +204,47 @@ account on each request, so existing access tokens stop working immediately
 - `NEXT_PUBLIC_API_URL` lives in `frontend/.env.example` and defaults to
   `http://localhost:8000` (D-030).
 
-## 8. Database migrations
+## 8. Lead CRM data model
+
+Migration `0004` adds the M2 foundation. Domain enums live in
+`app/core/domain.py` and are stored as `VARCHAR` + `CHECK` (D-033).
+
+| Table | Purpose and key columns |
+| --- | --- |
+| `students` | Person identity: `first_name`, `last_name`, `email_normalised`, `phone_e164`, optional `date_of_birth` |
+| `leads` | One enquiry: `student_id`, nullable `programme_id`/`campus_id`/`source_id`, `admission_cycle`, `lifecycle_status`, `assigned_counsellor_id`, `raw_import_row` (JSONB) |
+| `programmes` | Academic programmes: unique `name`, optional unique `code`, active flag |
+| `campuses` | Locations: unique `name`, optional `city`, active flag |
+| `lead_sources` | Acquisition channels: unique `name`, `description` |
+| `consent_records` | Append-only grants/revocations: `student_id`, `channel`, `category`, `granted`, `source`, `method`, `recorded_at` |
+| `timeline_events` | Immutable activity: `student_id`, nullable `lead_id`, `event_type`, `actor_type`, `actor_id`, `payload` (JSONB), `created_at` |
+
+- **Duplicate prevention:** `UNIQUE (student_id, programme_id, admission_cycle)`
+  stops a re-import from creating a second lead for the same enquiry (FR-02).
+  A different programme or cycle is a legitimate new lead.
+- **Student identity keys:** a student must have an email or a phone. Each is
+  unique when present through partial indexes, and email must be lowercase. The
+  importer normalises before writing (M2.2); the database enforces the invariant
+  against future callers (D-034).
+- **Cascade rules:** deleting a student removes their leads, consent records, and
+  timeline. Deleting a programme, campus, source, or staff account nulls the
+  reference instead of deleting enquiry history (D-032).
+- **Consent** rows are never updated: the newest row for a
+  student/channel/category is the current decision, preserving the audit trail
+  required by AC4.4 (D-035).
+- **Timeline** is ordered by `(student_id, created_at)`. `actor_id` is a plain
+  UUID because the actor may be a user, agent, or system process.
+
+## 9. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
 enables the `vector`, `btree_gist`, and `pgcrypto` extensions and is reversible.
 Migrations are the only way schema changes are applied; the API container runs
-`alembic upgrade head` before starting.
+`alembic upgrade head` before starting. `0004` adds the lead CRM tables
+(§8). The migration test downgrades to base, upgrades to head, and asserts that
+every table disappears again, so every revision must round-trip.
 
-## 9. Testing
+## 10. Testing
 
 | Layer | Location | Requirements |
 | --- | --- | --- |
@@ -228,6 +261,12 @@ database and `make migrate-test` applies migrations to it. The migration test
 upgrades, downgrades, and re-upgrades the test schema and refuses to run when
 the database name does not end in `_test` (R-001, D-013).
 
+Lead-specific tests (`tests/integration/test_lead_model.py`) prove the
+`(student, programme, cycle)` uniqueness and defaults, while
+`tests/integration/test_lead_scope.py` exercises the cross-counsellor rule with
+real users, leads, and access tokens: own lead 200, another counsellor's lead
+404, manager 200, unknown id 404.
+
 Playwright (`frontend/e2e/auth.spec.ts`) drives the real stack: it logs in as
 each seeded role, asserts the role-specific menu, logs out, and confirms a
 reload cannot restore the session. `make test-e2e` runs it against a locally
@@ -238,7 +277,7 @@ CI (`.github/workflows/ci.yml`) runs backend lint/type-check/tests against
 `pgvector/pgvector:pg16` and Redis service containers, frontend
 lint/type-check/tests/build, and Docker image builds.
 
-## 10. Decisions, status, and handoff
+## 11. Decisions, status, and handoff
 
 This document describes the resulting design. The **decision log with rationale**,
 current milestone status, environment quirks, known risks, and open engineering

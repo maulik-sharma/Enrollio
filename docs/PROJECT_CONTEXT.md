@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-02, after `M1.5` (frontend authentication shell)
-- **Current position:** M0 complete · **M1 complete** → **next task M2.1**
+- **Last updated:** 2026-11-02, after `M2.1` (lead CRM core model)
+- **Current position:** M0 · M1 complete · M2.1 complete → **next task M2.2**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -26,7 +26,7 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
-| M2 Lead CRM and ingestion | ⬜ Not started | |
+| M2 Lead CRM and ingestion | 🚧 In progress | M2.1 complete; next: M2.2 normalisation utilities |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
@@ -50,19 +50,25 @@ project is operated, and what is still open.
 | M1.0 Test database isolation (R-001) | ✅ | `enrollio_test` created by Compose init / `make create-test-db`; `TEST_DATABASE_URL`; destructive migration test refuses non-`_test` databases; sentinel test proves the dev database survives |
 | M1.1 Users, roles, permissions | ✅ | Migration `0002`; 17 permissions and 3 roles in `app/core/permissions.py`; idempotent `make seed`; Argon2id password hashing; three dev demo accounts |
 | M1.2 Authentication | ✅ | Migration `0003` (lockout columns, `refresh_tokens`); JWT access tokens; opaque rotating refresh tokens in an HttpOnly/Secure/SameSite=Strict cookie scoped to `/api/auth`; login, refresh, logout, `/api/auth/me`; 5-failure lockout with generic 401; CORS for the web app |
-| M1.3 Permission enforcement | ✅ code / ⚠️ lead gate deferred | `require_permission` (403) in `app/api/deps.py`; `can_access_lead` in `app/services/access.py` (view-all vs assigned-only); unit + API tests. The real cross-counsellor DB test needs `leads` and moves to M2.1 (Q-006) |
+| M1.3 Permission enforcement | ✅ | `require_permission` (403) in `app/api/deps.py`; `can_access_lead` in `app/services/access.py` (view-all vs assigned-only); unit + API tests. The real cross-counsellor DB gate landed with M2.1 |
 | M1.4 User and role administration | ✅ | `GET/POST /api/users`, `PATCH /api/users/{id}`, `POST /api/users/{id}/deactivate`, `GET /api/roles`, `PUT /api/roles/{id}/permissions`; services normalise email, validate roles/permissions, revoke sessions on deactivation or password change; 403/404/409/400 tests |
 | M1.5 Frontend authentication shell | ✅ | `/login`, client-side protected shell, in-memory access token with refresh-on-401, role-aware navigation from the permission list, logout; Vitest nav tests and 4 Playwright flows (three roles + invalid login) |
 
-### Verification snapshot (2026-11-01)
+### M2 task detail
+
+| Task | Status | What exists |
+| --- | --- | --- |
+| M2.1 Lead CRM core model | ✅ | Migration `0004`: `students`, `leads`, `programmes`, `campuses`, `lead_sources`, `consent_records`, `timeline_events`; unique `(student_id, programme_id, admission_cycle)`; partial unique indexes on normalised email/phone; cross-counsellor gate now tested against real leads (Q-006 resolved) |
+
+### Verification snapshot (2026-11-02)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy, eslint)
 make typecheck            pass (mypy strict, tsc --noEmit)
-make test                 93 backend tests pass, 4 frontend tests pass
+make test                 98 backend tests pass, 4 frontend tests pass
 make test-e2e             4 Playwright flows pass (three roles + invalid login)
-make migrate              pass (0003 applied)
-make migrate-test         pass (0003 applied to enrollio_test)
+make migrate              pass (0004 applied)
+make migrate-test         pass (0004 applied to enrollio_test)
 make seed                 pass (3 roles, 17 permissions, 3 demo users; idempotent)
 make smoke                6/6 services healthy within 120s
 docker compose build      backend + web images build
@@ -126,6 +132,10 @@ not taken.
 | D-029 | Route protection is a client-side guard (`RequireAuth`); the API remains the security boundary | M1 has no server-rendered private data; every API call is authenticated and permission-checked server-side (D-024) | Server middleware now, which would need a token design change |
 | D-030 | Frontend configuration lives in `frontend/.env.example` (`NEXT_PUBLIC_API_URL`), not the root `.env.example`; the browser defaults to `http://localhost:8000` | The root file has an exact-key parity test against backend `Settings` | Relaxing the parity test; passing browser URLs through the backend |
 | D-031 | Playwright runs in its own CI job with Postgres, Redis, a migrated and seeded dev database, Uvicorn on `:8000`, and Chromium; the report is uploaded on failure; `make test-e2e` runs it locally | The e2e flow needs a real session and the httpOnly cookie; mocked auth would not prove the integration | Testing only the frontend with mocked fetch |
+| D-032 | Migration `0004` adds the core CRM tables. `leads.student_id` cascades on delete; catalogue FKs (`programme`, `campus`, `source`) and `assigned_counsellor_id` use `ON DELETE SET NULL`; `programme_id`/`campus_id`/`source_id` are nullable because course, campus, and source are optional on import | A lead is meaningless without its student, but losing a programme or counsellor must not delete enquiry history | Cascading catalogue deletes; non-null programme/campus |
+| D-033 | Lifecycle, actor, and consent enums live in `app/core/domain.py` and are stored as `VARCHAR` + `CHECK` (`native_enum=False`, `create_constraint=True`) | Adding a value is a normal constraint migration; PostgreSQL enum types are awkward to alter and complicate downgrade | Native PostgreSQL enums; free-text columns with no check |
+| D-034 | `students` requires at least one of `email_normalised`/`phone_e164`, each is unique when present (partial indexes), and email must be lowercase | FR-02 identifies a student by exact email or phone; the database enforces the invariant even if a future caller bypasses the normaliser | Application-only validation; `citext` |
+| D-035 | `consent_records` is append-only (latest row per student/channel/category wins); `timeline_events.actor_id` is a plain UUID because the actor may be a user, agent, or system; timeline has `created_at` only | Consent needs the full grant/revoke history (AC4.4) and timeline events are immutable; one actor column cannot reference three tables | Updating consent rows in place; separate event tables per actor type |
 
 ## 4. Architecture in one paragraph
 
@@ -209,7 +219,7 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-001 | ~~**Integration tests use the dev database.**~~ **Resolved by D-013 (M1.0).** Tests now use `enrollio_test`, the migration test refuses non-`_test` names, and a sentinel test proves the dev database survives | Done; keep the guard |
 | R-002 | `docs/plan.md` M0.5's "deliberately failing test" gate has never run, because nothing is pushed | Keep the workflow green locally; verify on the first push/PR (see Q-003) |
 | R-003 | MinIO is served by a third-party mirror | Tag is pinned; image only exposes the S3 API. If unavailable, switch to another S3-compatible image (D-006) |
-| R-004 | ~~**No authentication or RBAC.**~~ **Resolved in M1.2–M1.3:** authentication is live and `require_permission`/`can_access_lead` are available. No data endpoint exists yet, so nothing is exposed | Apply both to every endpoint starting with M1.4; cross-counsellor DB gate tracked as Q-006 |
+| R-004 | ~~**No authentication or RBAC.**~~ **Resolved in M1.2–M1.3:** authentication is live, `require_permission`/`can_access_lead` are available, and M2.1 proved the cross-counsellor gate against real leads. No lead data endpoint exists yet | Every new endpoint must declare a permission and a resource scope; `/api/leads` in M2.7 is the first real test |
 | R-005 | Provider choices for M3/M4 are undecided | Answer Q-001 before M3.1; mocks keep progress unblocked |
 | R-006 | CI has no secret scanning, dependency audit, or coverage gate yet | Add when the plan's security/testing tasks require it; not M0 scope |
 | R-007 | `docs/plan.md` M0 requires Python 3.12 but the host ships 3.14 | The 3.12 interpreter is installed via uv; document this for new machines |
@@ -228,7 +238,7 @@ These are engineering decisions; product/college questions stay in
 | Q-003 | When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run? | Before the first collaborative change |
 | Q-004 | If the PIGSTY MinIO mirror disappears, which S3-compatible image is the fallback? | When D-006 needs revisiting |
 | Q-005 | Should `make dev` eventually run migrations automatically, or stay explicit (`make migrate`)? | M1.1 |
-| Q-006 | **Deferred security gate:** `docs/plan.md` M1.3's cross-counsellor integration test (counsellor A gets 404 for counsellor B's lead; manager reads any lead) needs the `leads` table, which arrives in M2.1. `can_access_lead` and `require_permission` are implemented and unit/API tested now | M2.1 — must land before any lead endpoint is exposed |
+| Q-006 | ~~Deferred security gate: M1.3's cross-counsellor test needs the `leads` table~~ **Resolved in M2.1:** `test_lead_scope.py` creates real leads for two counsellors and proves 404 cross-scope, 200 own scope, and manager view-all | — |
 | Q-007 | Should the API prevent deactivating or demoting the last active System Admin (and stripping `users.manage`/`roles.manage` from `system_admin`)? | Before a shared deployment (R-008) |
 
 ## 9. Update template
@@ -267,3 +277,4 @@ Checklist for every task commit:
 | 2026-11-02 | M1.3: `require_permission` (403), `can_access_lead` scoping (view-all vs assigned-only), unit and API tests. Real cross-counsellor DB test deferred to M2.1 as Q-006. |
 | 2026-11-02 | M1.4: user CRUD/deactivation and role permission APIs, session revocation on deactivation/password change, HTTP mappings and tests. Last-admin guard recorded as R-008/Q-007. |
 | 2026-11-02 | M1.5: login page, protected shell, in-memory token with refresh-on-401, role-aware navigation, logout; Vitest and Playwright suites; e2e CI job. **Milestone M1 complete.** |
+| 2026-11-02 | M2.1: migration `0004` adds students, leads, programmes, campuses, lead sources, consent records, and timeline events; lead uniqueness and student contact keys enforced in the database; Q-006 cross-counsellor gate tested against real leads. |

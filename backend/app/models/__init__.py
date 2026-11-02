@@ -3,9 +3,29 @@
 from __future__ import annotations
 
 from app.models.base import Base
+from app.models.campus import Campus
+from app.models.consent_record import ConsentRecord
+from app.models.lead import Lead
+from app.models.lead_source import LeadSource
 from app.models.permission import Permission
+from app.models.programme import Programme
 from app.models.refresh_token import RefreshToken
 from app.models.role import Role
+from app.models.student import Student
+from app.models.timeline_event import TimelineEvent
 from app.models.user import User
 
-__all__ = ["Base", "Permission", "RefreshToken", "Role", "User"]
+__all__ = [
+    "Base",
+    "Campus",
+    "ConsentRecord",
+    "Lead",
+    "LeadSource",
+    "Permission",
+    "Programme",
+    "RefreshToken",
+    "Role",
+    "Student",
+    "TimelineEvent",
+    "User",
+]

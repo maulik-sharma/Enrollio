@@ -19,6 +19,19 @@ from tests.conftest import is_test_database, requires_postgres
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 EXPECTED_EXTENSIONS = {"vector", "btree_gist", "pgcrypto"}
+EXPECTED_TABLES = {
+    "users",
+    "roles",
+    "permissions",
+    "refresh_tokens",
+    "students",
+    "leads",
+    "programmes",
+    "campuses",
+    "lead_sources",
+    "consent_records",
+    "timeline_events",
+}
 
 
 def _run_alembic(*args: str, database_url: str) -> None:
@@ -44,6 +57,18 @@ async def _installed_extensions(database_url: str) -> set[str]:
         await engine.dispose()
 
 
+async def _tables(database_url: str) -> set[str]:
+    engine = create_async_engine(database_url)
+    try:
+        async with engine.connect() as connection:
+            rows = await connection.execute(
+                text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+            )
+            return {row[0] for row in rows}
+    finally:
+        await engine.dispose()
+
+
 @requires_postgres
 async def test_extensions_enabled_and_migration_is_reversible(database_url: str) -> None:
     if not is_test_database(database_url):
@@ -56,9 +81,11 @@ async def test_extensions_enabled_and_migration_is_reversible(database_url: str)
     _run_alembic("upgrade", "head", database_url=database_url)
 
     assert await _installed_extensions(database_url) >= EXPECTED_EXTENSIONS
+    assert await _tables(database_url) >= EXPECTED_TABLES
 
     _run_alembic("downgrade", "base", database_url=database_url)
     assert not EXPECTED_EXTENSIONS & await _installed_extensions(database_url)
+    assert not EXPECTED_TABLES & await _tables(database_url)
 
     _run_alembic("upgrade", "head", database_url=database_url)
     assert await _installed_extensions(database_url) >= EXPECTED_EXTENSIONS
