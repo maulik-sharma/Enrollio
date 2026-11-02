@@ -2,4 +2,4 @@
 
 
 def test_deliberately_failing_probe() -> None:
-    assert False, "M0.5: remove this test to make CI pass"
+    raise AssertionError("M0.5: remove this test to make CI pass")
