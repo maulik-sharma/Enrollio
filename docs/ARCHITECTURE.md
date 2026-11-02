@@ -1,7 +1,7 @@
 # Architecture
 
-> Status: Milestones M0, M1, and M2.1 (foundation, identity, lead CRM schema).
-> This document is updated as milestones land.
+> Status: Milestones M0, M1, and M2.1–M2.2 (foundation, identity, lead CRM
+> schema, normalisation). This document is updated as milestones land.
 
 ## 1. Repository layout
 
@@ -235,6 +235,23 @@ Migration `0004` adds the M2 foundation. Domain enums live in
 - **Timeline** is ordered by `(student_id, created_at)`. `actor_id` is a plain
   UUID because the actor may be a user, agent, or system process.
 
+### Normalisation (M2.2)
+
+`app/core/normalisation.py` is the single place incoming values are canonicalised.
+Every helper returns a canonical value or raises a `NormalisationError` subclass
+whose stable `code` becomes the import rejection reason (D-036):
+
+| Helper | Rule | Example |
+| --- | --- | --- |
+| `normalise_email` | Trim, validate with `email-validator` (no delivery check), lowercase | `Rahul.Sharma@Gmail.com` → `rahul.sharma@gmail.com` |
+| `normalise_phone` | Parse with `phonenumbers`, default region `IN`, require a valid number, format E.164 | `098765 43210` → `+919876543210` |
+| `normalise_name` | Collapse all whitespace, preserve case and punctuation | `"  Asha   Rao "` → `Asha Rao` |
+| `normalise_score` | Accept numeric 0–100 with optional trailing `%`; reject booleans, NaN, infinity, text | `85%` → `85.0` |
+
+Emails are lowercased entirely, not just the domain, so duplicate detection and
+login stay case-insensitive (D-037). Phone numbers without a country code are
+read as Indian; numbers with one may be international.
+
 ## 9. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -265,7 +282,9 @@ Lead-specific tests (`tests/integration/test_lead_model.py`) prove the
 `(student, programme, cycle)` uniqueness and defaults, while
 `tests/integration/test_lead_scope.py` exercises the cross-counsellor rule with
 real users, leads, and access tokens: own lead 200, another counsellor's lead
-404, manager 200, unknown id 404.
+404, manager 200, unknown id 404. Normaliser cases live in
+`tests/unit/test_normalisation.py` and must keep 100% branch coverage of
+`app/core/normalisation.py`.
 
 Playwright (`frontend/e2e/auth.spec.ts`) drives the real stack: it logs in as
 each seeded role, asserts the role-specific menu, logs out, and confirms a

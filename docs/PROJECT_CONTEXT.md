@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-02, after `M2.1` (lead CRM core model)
-- **Current position:** M0 · M1 complete · M2.1 complete → **next task M2.2**
+- **Last updated:** 2026-11-02, after `M2.2` (normalisation utilities)
+- **Current position:** M0 · M1 complete · M2.1–M2.2 complete → **next task M2.3**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -26,7 +26,7 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
-| M2 Lead CRM and ingestion | 🚧 In progress | M2.1 complete; next: M2.2 normalisation utilities |
+| M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.2 complete; next: M2.3 CSV/XLSX import pipeline |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
@@ -59,13 +59,14 @@ project is operated, and what is still open.
 | Task | Status | What exists |
 | --- | --- | --- |
 | M2.1 Lead CRM core model | ✅ | Migration `0004`: `students`, `leads`, `programmes`, `campuses`, `lead_sources`, `consent_records`, `timeline_events`; unique `(student_id, programme_id, admission_cycle)`; partial unique indexes on normalised email/phone; cross-counsellor gate now tested against real leads (Q-006 resolved) |
+| M2.2 Normalisation utilities | ✅ | `app/core/normalisation.py`: email (trim, lowercase, `email-validator`), phone (`phonenumbers`, IN default, E.164), name (whitespace collapse, case preserved), score (0–100, optional `%`); typed errors with stable reason codes; 102 parametrised cases, 100% branch coverage |
 
 ### Verification snapshot (2026-11-02)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy, eslint)
 make typecheck            pass (mypy strict, tsc --noEmit)
-make test                 98 backend tests pass, 4 frontend tests pass
+make test                 200 backend tests pass, 4 frontend tests pass
 make test-e2e             4 Playwright flows pass (three roles + invalid login)
 make migrate              pass (0004 applied)
 make migrate-test         pass (0004 applied to enrollio_test)
@@ -76,6 +77,14 @@ GET /readyz               200 with PG+Redis up
 GET /readyz               HTTP 503 with the db container stopped, 200 after restart
 GET /healthz              200
 GET localhost:3000        200
+```
+
+Normalisation coverage:
+
+```bash
+cd backend && .venv/bin/python -m pytest tests/unit/test_normalisation.py \
+  --cov=app.core.normalisation --cov-branch --cov-fail-under=100
+# 102 passed, app/core/normalisation.py 100% (62 statements, 22 branches)
 ```
 
 Reproduce integration tests:
@@ -136,6 +145,8 @@ not taken.
 | D-033 | Lifecycle, actor, and consent enums live in `app/core/domain.py` and are stored as `VARCHAR` + `CHECK` (`native_enum=False`, `create_constraint=True`) | Adding a value is a normal constraint migration; PostgreSQL enum types are awkward to alter and complicate downgrade | Native PostgreSQL enums; free-text columns with no check |
 | D-034 | `students` requires at least one of `email_normalised`/`phone_e164`, each is unique when present (partial indexes), and email must be lowercase | FR-02 identifies a student by exact email or phone; the database enforces the invariant even if a future caller bypasses the normaliser | Application-only validation; `citext` |
 | D-035 | `consent_records` is append-only (latest row per student/channel/category wins); `timeline_events.actor_id` is a plain UUID because the actor may be a user, agent, or system; timeline has `created_at` only | Consent needs the full grant/revoke history (AC4.4) and timeline events are immutable; one actor column cannot reference three tables | Updating consent rows in place; separate event tables per actor type |
+| D-036 | Normalisation lives in `app/core/normalisation.py`; each helper raises a `NormalisationError` subclass with a stable `code` (`invalid_email`, `invalid_phone`, `invalid_name`, `invalid_score`) | M2.3 stores those codes as import rejection reasons, so messages can change without breaking reporting | Returning `None`; string parsing of error messages |
+| D-037 | Emails are fully lowercased after `email-validator`; phones use `phonenumbers` with default region `IN` and must pass `is_valid_number`; international numbers are accepted when they carry a country code; scores become floats | Import data is messy and Indian numbers arrive in many forms; canonical values keep duplicate detection exact and country-agnostic | Storing raw input; assuming every number is Indian |
 
 ## 4. Architecture in one paragraph
 
@@ -278,3 +289,4 @@ Checklist for every task commit:
 | 2026-11-02 | M1.4: user CRUD/deactivation and role permission APIs, session revocation on deactivation/password change, HTTP mappings and tests. Last-admin guard recorded as R-008/Q-007. |
 | 2026-11-02 | M1.5: login page, protected shell, in-memory token with refresh-on-401, role-aware navigation, logout; Vitest and Playwright suites; e2e CI job. **Milestone M1 complete.** |
 | 2026-11-02 | M2.1: migration `0004` adds students, leads, programmes, campuses, lead sources, consent records, and timeline events; lead uniqueness and student contact keys enforced in the database; Q-006 cross-counsellor gate tested against real leads. |
+| 2026-11-02 | M2.2: email/phone/name/score normalisers with typed reason codes, `phonenumbers` dependency, 102 cases at 100% branch coverage. |
