@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Annotated
 
 from fastapi import Depends, HTTPException, Request, status
@@ -10,6 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import Settings
+from app.core.permissions import PermissionName, user_has_permission
 from app.core.security import TokenError, decode_access_token
 from app.models.user import User
 from app.repositories import users as users_repo
@@ -17,6 +18,7 @@ from app.repositories import users as users_repo
 bearer_scheme = HTTPBearer(auto_error=False)
 
 UNAUTHENTICATED = "Not authenticated"
+FORBIDDEN = "Insufficient permissions"
 
 
 async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
@@ -75,3 +77,25 @@ async def get_current_user(
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
+
+
+def require_permission(
+    permission: PermissionName | str,
+) -> Callable[[User], Awaitable[User]]:
+    """Build a dependency that rejects users without ``permission``.
+
+    Permission failures are 403, not 404: the caller is authenticated and the
+    fact that the endpoint exists is not a secret. Resource-level checks (for
+    example a lead assigned to another counsellor) return 404 separately, so
+    they do not reveal whether the resource exists.
+    """
+
+    async def dependency(user: CurrentUserDep) -> User:
+        if not user_has_permission(user, permission):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=FORBIDDEN,
+            )
+        return user
+
+    return dependency

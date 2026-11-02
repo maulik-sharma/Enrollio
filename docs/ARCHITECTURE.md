@@ -121,6 +121,20 @@ deleting the legacy `@example.test` demo rows first (D-023).
 Seeding is idempotent. Authentication is described in §7; permission
 enforcement arrives in M1.3.
 
+### Permission enforcement
+
+- `Depends(require_permission(PermissionName.X))` rejects a role that lacks the
+  permission with `403 {"detail": "Insufficient permissions"}`.
+- `can_access_lead(user, lead)` in `app/services/access.py` is the single
+  resource rule: `leads.view_all` sees every lead, `leads.view_assigned` sees
+  only `lead.assigned_counsellor_id == user.id`, everyone else sees none. The
+  helper takes a structural `AssignedLead` protocol, so M2's `Lead` model can
+  use it unchanged.
+- Resource-level denial is rendered as **404**, so a caller cannot distinguish
+  "exists but is not yours" from "does not exist" (D-024).
+- The real cross-counsellor database test is deferred to M2.1, when the `leads`
+  table exists (Q-006 in [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md)).
+
 ## 7. Authentication and sessions
 
 | Endpoint | Purpose |

@@ -9,6 +9,7 @@ from collections.abc import AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
+from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -81,8 +82,12 @@ async def seeded_database(
 
 
 @pytest.fixture
-async def app_client(test_settings: Settings) -> AsyncIterator[AsyncClient]:
-    app = create_app(test_settings)
+def app(test_settings: Settings) -> FastAPI:
+    return create_app(test_settings)
+
+
+@pytest.fixture
+async def app_client(app: FastAPI) -> AsyncIterator[AsyncClient]:
     async with (
         app.router.lifespan_context(app),
         AsyncClient(

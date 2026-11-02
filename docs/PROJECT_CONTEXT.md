@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-01, after `M1.2` (authentication)
-- **Current position:** M0 complete · M1.0–M1.2 complete → **next task M1.3**
+- **Last updated:** 2026-11-02, after `M1.3` (permission enforcement)
+- **Current position:** M0 complete · M1.0–M1.3 complete → **next task M1.4**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -25,7 +25,7 @@ project is operated, and what is still open.
 | Milestone | Status | Notes |
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01 |
-| M1 Identity and RBAC | 🚧 In progress | M1.0–M1.2 complete; next: M1.3 permission enforcement |
+| M1 Identity and RBAC | 🚧 In progress | M1.0–M1.3 complete; next: M1.4 user/role administration |
 | M2 Lead CRM and ingestion | ⬜ Not started | |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
@@ -50,13 +50,14 @@ project is operated, and what is still open.
 | M1.0 Test database isolation (R-001) | ✅ | `enrollio_test` created by Compose init / `make create-test-db`; `TEST_DATABASE_URL`; destructive migration test refuses non-`_test` databases; sentinel test proves the dev database survives |
 | M1.1 Users, roles, permissions | ✅ | Migration `0002`; 17 permissions and 3 roles in `app/core/permissions.py`; idempotent `make seed`; Argon2id password hashing; three dev demo accounts |
 | M1.2 Authentication | ✅ | Migration `0003` (lockout columns, `refresh_tokens`); JWT access tokens; opaque rotating refresh tokens in an HttpOnly/Secure/SameSite=Strict cookie scoped to `/api/auth`; login, refresh, logout, `/api/auth/me`; 5-failure lockout with generic 401; CORS for the web app |
+| M1.3 Permission enforcement | ✅ code / ⚠️ lead gate deferred | `require_permission` (403) in `app/api/deps.py`; `can_access_lead` in `app/services/access.py` (view-all vs assigned-only); unit + API tests. The real cross-counsellor DB test needs `leads` and moves to M2.1 (Q-006) |
 
 ### Verification snapshot (2026-11-01)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy, eslint)
 make typecheck            pass (mypy strict, tsc --noEmit)
-make test                 69 backend tests pass, 1 frontend test passes
+make test                 81 backend tests pass, 1 frontend test passes
 make migrate              pass (0003 applied)
 make migrate-test         pass (0003 applied to enrollio_test)
 make seed                 pass (3 roles, 17 permissions, 3 demo users; idempotent)
@@ -114,6 +115,8 @@ not taken.
 | D-021 | The refresh token travels in an HttpOnly, Secure, SameSite=Strict cookie scoped to `path=/api/auth`; logout clears it and revokes the family | JavaScript cannot read it, cross-site requests do not carry it, and it is only sent to the two endpoints that need it | Token in the response body; `SameSite=Lax` |
 | D-022 | Lockout is stored on `users` (`failed_login_count`, `last_failed_login_at`, `locked_until`): 5 failures inside 15 minutes locks for 15 minutes; every rejection returns the same generic 401 and unknown emails pay the same Argon2 cost | No extra store to operate; responses and timing do not reveal whether an account exists | Redis counters; distinct "locked" responses |
 | D-023 | Demo accounts moved from `@example.test` to `@enrollio.dev`; seeding deletes the three legacy demo rows | `EmailStr` rejects special-use/reserved domains such as `.test`, so login validation rejected the seeded users; deleting the old rows keeps an existing dev database at one account per role | Disabling email validation; `@example.com` |
+| D-024 | Endpoints declare `require_permission("<name>")`; a missing permission is **403**. Resource scoping is separate: `can_access_lead` decides read access and the API maps denial to **404** | Missing permission is a property of the role, but a lead the caller cannot see must not be distinguishable from a missing one | 404 for permission denial; filtering in the frontend |
+| D-025 | `can_access_lead` lives in `app/services/access.py` and takes a structural `AssignedLead` protocol instead of the M2 model | The rule is pure and testable now; M2.1's `Lead` model satisfies the protocol, so the helper does not change when the table arrives | Waiting for the `leads` table; duplicating the rule per service |
 
 ## 4. Architecture in one paragraph
 
@@ -152,6 +155,9 @@ mock. Frontend is a separate Next.js app. Full detail:
 - **Auth cookies:** the refresh cookie is `Secure`, so browsers only send it over
   HTTPS or to `localhost`. API tests use an `https://test` base URL for that
   reason.
+- **Authorisation:** protected endpoints take `Depends(require_permission(...))`
+  and return 403 when the role lacks it; resource checks use
+  `can_access_lead`/equivalent and return 404 on denial. See §6.
 - **Local `.env`:** created from `.env.example`; it is gitignored and must stay
   that way.
 
@@ -183,7 +189,7 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-001 | ~~**Integration tests use the dev database.**~~ **Resolved by D-013 (M1.0).** Tests now use `enrollio_test`, the migration test refuses non-`_test` names, and a sentinel test proves the dev database survives | Done; keep the guard |
 | R-002 | `docs/plan.md` M0.5's "deliberately failing test" gate has never run, because nothing is pushed | Keep the workflow green locally; verify on the first push/PR (see Q-003) |
 | R-003 | MinIO is served by a third-party mirror | Tag is pinned; image only exposes the S3 API. If unavailable, switch to another S3-compatible image (D-006) |
-| R-004 | ~~**No authentication or RBAC.**~~ **Authentication done in M1.2; permission enforcement lands in M1.3.** Until then every authenticated user can call any endpoint that only requires a token | Finish M1.3 (`require_permission`, lead scoping) before exposing data endpoints |
+| R-004 | ~~**No authentication or RBAC.**~~ **Resolved in M1.2–M1.3:** authentication is live and `require_permission`/`can_access_lead` are available. No data endpoint exists yet, so nothing is exposed | Apply both to every endpoint starting with M1.4; cross-counsellor DB gate tracked as Q-006 |
 | R-005 | Provider choices for M3/M4 are undecided | Answer Q-001 before M3.1; mocks keep progress unblocked |
 | R-006 | CI has no secret scanning, dependency audit, or coverage gate yet | Add when the plan's security/testing tasks require it; not M0 scope |
 | R-007 | `docs/plan.md` M0 requires Python 3.12 but the host ships 3.14 | The 3.12 interpreter is installed via uv; document this for new machines |
@@ -200,6 +206,7 @@ These are engineering decisions; product/college questions stay in
 | Q-003 | When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run? | Before the first collaborative change |
 | Q-004 | If the PIGSTY MinIO mirror disappears, which S3-compatible image is the fallback? | When D-006 needs revisiting |
 | Q-005 | Should `make dev` eventually run migrations automatically, or stay explicit (`make migrate`)? | M1.1 |
+| Q-006 | **Deferred security gate:** `docs/plan.md` M1.3's cross-counsellor integration test (counsellor A gets 404 for counsellor B's lead; manager reads any lead) needs the `leads` table, which arrives in M2.1. `can_access_lead` and `require_permission` are implemented and unit/API tested now | M2.1 — must land before any lead endpoint is exposed |
 
 ## 9. Update template
 
@@ -234,3 +241,4 @@ Checklist for every task commit:
 | 2026-11-01 | M1.0: dedicated `enrollio_test` database, destructive-migration guard, CI/Compose creation, isolation test. R-001 and Q-002 resolved. |
 | 2026-11-01 | M1.1: users/roles/permissions migration, permission catalog and role matrix, idempotent seed, Argon2id hashing, demo accounts. |
 | 2026-11-02 | M1.2: JWT access tokens, rotating opaque refresh tokens in an HttpOnly cookie, login/refresh/logout/me endpoints, lockout, CORS, demo emails moved to `@enrollio.dev`. |
+| 2026-11-02 | M1.3: `require_permission` (403), `can_access_lead` scoping (view-all vs assigned-only), unit and API tests. Real cross-counsellor DB test deferred to M2.1 as Q-006. |
