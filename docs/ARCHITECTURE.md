@@ -494,19 +494,53 @@ used by the mapping component. `lib/lifecycle.ts` owns labels, tones, and date/
 name formatting. `lib/api.ts` now leaves multipart bodies untouched so the
 browser sets the upload boundary.
 
-## 9. Database migrations
+## 9. Communication providers (M3.1)
+
+Business code depends on `app/integrations/email/base.py`, never on a vendor SDK.
+The `EmailProvider` protocol is `send(message) -> provider_message_id`,
+`parse_inbound(webhook_payload) -> InboundMessage`, and
+`verify_webhook(headers, body) -> bool`. `EmailMessage` and `InboundMessage` are
+provider-neutral dataclasses; shared helpers parse ``Name <address>`` strings,
+mapping addresses, headers supplied as JSON or text, and ISO timestamps.
+
+`MockEmailProvider` is the default from `build_email_provider`. It writes
+`mock_email_messages` (migration `0008`) with direction (`outbound`/`inbound`),
+provider message id, addresses, subject, text/HTML bodies, status, `in_reply_to`,
+and `last_event_at`. `send` returns `mock-<uuid>`. Test helpers
+`simulate_inbound_reply` persists a parsed reply and marks the original outbound
+message as `replied` when `In-Reply-To` matches; `simulate_delivery_event`
+updates an outbound message to `delivered`/`opened`/`clicked`/`bounced`/
+`complained`/`deferred`. Mock webhooks require
+`X-Mock-Signature: sha256=<hmac-sha256>` over the raw body and fail closed when
+no secret is configured.
+
+`SendGridEmailProvider` posts the v3 payload through `httpx`, reads the
+`X-Message-Id` response header, and maps transport or non-2xx responses to
+`EmailDeliveryError`. Inbound Parse is authenticated with HTTP Basic
+`sendgrid:<EMAIL_WEBHOOK_SECRET>`. An injected `httpx.AsyncClient` lets contract
+tests exercise the request shape offline; a live send test runs only when
+`EMAIL_API_KEY` and `EMAIL_CONTRACT_TO` are set. `EMAIL_PROVIDER=ses` has no
+adapter yet and raises `EmailNotConfigured` (R-016).
+
+WhatsApp is interface-only in M3: `WhatsAppProvider`, `WhatsAppMessage`,
+`InboundWhatsAppMessage`, and a `StubWhatsAppProvider` whose methods raise
+`WhatsAppNotImplemented`. The Cloud API adapter belongs to Phase 2.
+
+## 10. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
 enables the `vector`, `btree_gist`, and `pgcrypto` extensions and is reversible.
 Migrations are the only way schema changes are applied; the API container runs
 `alembic upgrade head` before starting. `0004` adds the lead CRM tables and
 `0005` adds the import pipeline plus student score/year columns and `0006` adds
-duplicate candidates; `0007` adds source-scoped hashed API keys (§8). M2.7 and
-M2.8 add no migration; their contracts are recorded in D-056/D-057, and M2.9 is
-recorded in D-058. The migration test downgrades to base, upgrades to head, and
-asserts that every table disappears again, so every revision must round-trip.
+duplicate candidates; `0007` adds source-scoped hashed API keys (§8); and `0008`
+adds the mock email provider's `mock_email_messages` table (§9). M2.7, M2.8,
+and M2.10 add no migration; their contracts are recorded in D-056/D-057/D-059,
+and M2.9 is recorded in D-058. The migration test downgrades to base, upgrades
+to head, and asserts that every table disappears again, so every revision must
+round-trip.
 
-## 10. Testing
+## 11. Testing
 
 | Layer | Location | Requirements |
 | --- | --- | --- |
@@ -588,6 +622,16 @@ keys, enforce the 1,000-record 413 before writes, accept the envelope form, and
 push 500 leads successfully. `tests/unit/test_webhooks.py` covers valid HMAC
 signatures, tampering, wrong secrets, stale timestamps, and malformed headers.
 
+Provider contract tests (`tests/integration/test_email_provider_contract.py`)
+parameterise the mock and a SendGrid adapter backed by `httpx.MockTransport`:
+both must return a provider id and record the send, parse the shared inbound
+payload, and reject an unsigned webhook. Mock-only tests cover HMAC body binding,
+delivery-event status changes, inbound reply linkage, duplicate inbound ids, and
+the unknown-message error. SendGrid-only tests inspect the v3 payload/auth header
+and a non-2xx failure; a live send is skipped unless `EMAIL_API_KEY` and
+`EMAIL_CONTRACT_TO` are set. Factory/default and WhatsApp stub tests live in
+`tests/unit/test_email_providers.py`.
+
 Frontend unit tests (`frontend/tests/navigation.test.tsx` and
 `import-mapping.test.tsx`) cover the permission-filtered menu and prove the
 mapping component's suggested/saved/ignored selections produce the payload the
@@ -609,7 +653,7 @@ CI (`.github/workflows/ci.yml`) runs backend lint/type-check/tests against
 `pgvector/pgvector:pg16` and Redis service containers, frontend
 lint/type-check/tests/build, and Docker image builds.
 
-## 11. Decisions, status, and handoff
+## 12. Decisions, status, and handoff
 
 This document describes the resulting design. The **decision log with rationale**,
 current milestone status, environment quirks, known risks, and open engineering
