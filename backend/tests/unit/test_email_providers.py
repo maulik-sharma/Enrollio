@@ -11,6 +11,7 @@ from app.core.config import EmailProvider, Environment, Settings
 from app.integrations.email.base import EmailMessage, EmailNotConfigured
 from app.integrations.email.factory import build_email_provider
 from app.integrations.email.mock import MockEmailProvider
+from app.integrations.email.resend import ResendEmailProvider
 from app.integrations.email.sendgrid import SendGridEmailProvider
 from app.integrations.whatsapp.base import (
     InboundWhatsAppMessage,
@@ -56,6 +57,26 @@ def test_sendgrid_is_selected_when_configured() -> None:
         _unused_session_factory(),
     )
     assert isinstance(provider, SendGridEmailProvider)
+
+
+def test_resend_is_selected_when_configured() -> None:
+    provider = build_email_provider(
+        _settings(
+            USE_MOCK_EMAIL=False,
+            EMAIL_PROVIDER=EmailProvider.resend,
+            EMAIL_API_KEY="re.test",
+        ),
+        _unused_session_factory(),
+    )
+    assert isinstance(provider, ResendEmailProvider)
+
+
+def test_resend_requires_an_api_key() -> None:
+    with pytest.raises(EmailNotConfigured):
+        build_email_provider(
+            _settings(USE_MOCK_EMAIL=False, EMAIL_PROVIDER=EmailProvider.resend),
+            _unused_session_factory(),
+        )
 
 
 def test_sendgrid_requires_an_api_key() -> None:
