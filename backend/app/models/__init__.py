@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.models.api_key import ApiKey
 from app.models.base import Base
 from app.models.campus import Campus
 from app.models.consent_record import ConsentRecord
@@ -18,6 +19,7 @@ from app.models.timeline_event import TimelineEvent
 from app.models.user import User
 
 __all__ = [
+    "ApiKey",
     "Base",
     "Campus",
     "ConsentRecord",

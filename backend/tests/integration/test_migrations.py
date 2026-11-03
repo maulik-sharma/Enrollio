@@ -35,6 +35,7 @@ EXPECTED_TABLES = {
     "mapping_templates",
     "import_row_results",
     "duplicate_candidates",
+    "api_keys",
 }
 
 

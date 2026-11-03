@@ -14,6 +14,7 @@ from app.api.auth import router as auth_router
 from app.api.duplicates import router as duplicates_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
+from app.api.integrations import router as integrations_router
 from app.api.leads import router as leads_router
 from app.api.public import router as public_router
 from app.api.roles import router as roles_router
@@ -67,6 +68,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(students_router)
     application.include_router(duplicates_router)
     application.include_router(imports_router)
+    application.include_router(integrations_router)
     application.include_router(leads_router)
     application.include_router(public_router)
     return application
