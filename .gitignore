@@ -9,7 +9,9 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
-storage/
+# Local upload storage, not the storage integration package.
+/storage/
+/backend/storage/
 
 # Logs
 logs
