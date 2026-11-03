@@ -53,6 +53,13 @@ class ConsentCategory(StrEnum):
     PROMOTIONAL = "promotional"
 
 
+class EmailDirection(StrEnum):
+    """Whether an email left the system or arrived from a provider."""
+
+    OUTBOUND = "outbound"
+    INBOUND = "inbound"
+
+
 class ImportJobStatus(StrEnum):
     """Lifecycle of one uploaded file."""
 

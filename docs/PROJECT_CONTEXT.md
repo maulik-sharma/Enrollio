@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-03, after `M2.10` (frontend lead management)
-- **Current position:** M0 · M1 complete · M2 complete → **next task M3.1**
+- **Last updated:** 2026-11-03, after `M3.1` (provider interfaces and mock implementations)
+- **Current position:** M0 · M1 · M2 complete · M3.1 complete → **next task M3.2**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -27,7 +27,7 @@ project is operated, and what is still open.
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
 | M2 Lead CRM and ingestion | ✅ Complete | M2.1–M2.10 complete; lead management screens ship with import, list, detail, and manual entry |
-| M3 Communication and campaigns | ⬜ Not started | |
+| M3 Communication and campaigns | 🚧 In progress | M3.1 complete; next M3.2 message and conversation model |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
 | M6 Lead/conversation intelligence | ⬜ Not started | |
@@ -69,16 +69,23 @@ project is operated, and what is still open.
 | M2.9 Generic API ingestion endpoint | ✅ | Migration `0007` adds source-scoped hashed API keys; admin `POST /api/integrations/api-keys` returns plaintext once; `POST /api/integrations/leads` accepts `X-API-Key` or Bearer auth, ignores body source, validates through the import parser, enforces 1,000 records/413, isolates each record in a savepoint, returns `created`/`merged`/`duplicate`/`rejected` per record, and reuses the shared dedupe/name-only/conflict rules; HMAC-SHA256 webhook helper with a timestamp tolerance |
 | M2.10 Frontend lead management | ✅ | `/sections/leads` (search, lifecycle/programme/campus/source filters, cursor pagination), `/sections/my-leads` (assigned scope), `/sections/leads/new` (validated manual form with duplicate notice), `/sections/leads/import` (upload → saved/guessed mapping → preview → inline results → error CSV), and `/sections/leads/[id]` (student/lead details, permission-filtered lifecycle control, consent panel, timeline empty state); backend adds escaped `?search=`, `GET /api/catalogues`, `POST /api/leads/{id}/lifecycle`, enriched list/detail names, and `allowed_transitions`. Vitest mapping test, Playwright import/counts and counsellor-scope tests pass |
 
-### Verification snapshot (2026-11-03, after M2.10)
+### M3 task detail
+
+| Task | Status | What exists |
+| --- | --- | --- |
+| M3.1 Provider interfaces and mocks | ✅ | `EmailProvider` protocol (`send`, `parse_inbound`, `verify_webhook`) and provider-neutral `EmailMessage`/`InboundMessage`; DB-backed `MockEmailProvider` (migration `0008` creates `mock_email_messages`) with outbound sends, inbound-reply capture, and delivery-event helpers; SendGrid v3 adapter over `httpx` with injected-client contract tests and Basic-auth Inbound Parse verification; factory defaults to the mock and fails closed for SES; WhatsApp interface plus a stub that raises `WhatsAppNotImplemented` |
+
+### Verification snapshot (2026-11-03, after M3.1)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy; ESLint)
 make typecheck            pass (mypy strict; frontend tsc --noEmit)
-make test                 328 backend tests pass, 8 frontend tests pass
+make test                 347 backend tests pass (1 opt-in live SendGrid test skipped),
+                          8 frontend tests pass
 make test-e2e             6 Playwright tests pass locally with the API on :8000 and
-                          IMPORT_PROCESSING_MODE=inline (4 auth + import counts + counsellor scope)
-make migrate              pass (0007 applied)
-make migrate-test         pass (0007 applied; migration test upgrades/downgrades)
+                          IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3.1 has no UI change)
+make migrate              pass (0008 applied)
+make migrate-test         pass (0008 applied; migration test upgrades/downgrades)
 make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
                           2 campuses, 4 lead sources; idempotent)
 make smoke                not rerun after M2.3/M2.9 (host port 5432 is occupied by the
@@ -194,6 +201,9 @@ not taken.
 | D-060 | Search escapes `%`, `_`, and `\` and uses `ILIKE ... ESCAPE '\'`, and every search remains inside the caller's `leads.view_assigned` scope | A literal wildcard must not broaden a counsellor's visible set or turn into an accidental full-table scan; scoping stays identical to the unfiltered list | Unescaped `ILIKE`; a separate search permission |
 | D-061 | Lead management UI is split by permission: `/sections/leads` and `/sections/leads/import` require `leads.view_all`, while `/sections/my-leads` requires `leads.view_assigned`; `/sections/leads/new` is available to both and detail pages adapt the back link. `RequirePermission` renders an access message, but the API remains the enforcement boundary (R-009) | Managers and counsellors see different navigation already, and the list/detail routes must not silently show empty data to a role that cannot call the API; keeping the server authoritative avoids a second authorization source | One shared route that hides controls client-side; adding new permissions for UI routes |
 | D-062 | The import wizard uploads first (headers only), then loads a saved template by source name or guesses from common headers, previews mapped fields, starts processing, and renders terminal counts plus the error CSV. The Playwright import test copies the committed 100-row fixture with unique emails/phones per run, and CI sets `IMPORT_PROCESSING_MODE=inline` for the e2e job | Saving nothing until the user confirms the mapping matches the M2.3 API, and unique contacts keep the counted 85 created/5 duplicates/10 rejected stable across repeated runs; inline mode lets the browser flow finish without a Celery worker while the default stays `celery` | Creating leads during upload; reusing fixed contacts (later runs would become duplicates); running a worker in the Playwright job |
+| D-063 | Email uses one provider-neutral contract in `app/integrations/email/base.py`: `send` returns the provider message id, `parse_inbound` returns an `InboundMessage`, and `verify_webhook` returns a boolean. The mock is selected whenever `USE_MOCK_EMAIL` is true, regardless of `EMAIL_PROVIDER`, and stores sends/replies in `mock_email_messages` (migration `0008`) with test helpers for inbound replies and delivery events | Downstream services must never see a vendor payload or SDK; the mock needs durable, inspectable state for M3.2–M3.5 tests, and D-004's mock flags stay authoritative | In-memory-only mock; provider-specific message classes leaking into services; calling a vendor SDK directly |
+| D-064 | The first real email adapter is SendGrid: `httpx` posts the v3 payload, the `X-Message-Id` header is the provider id, non-2xx/transport failures raise `EmailDeliveryError`, and Inbound Parse webhooks require HTTP Basic auth `sendgrid:<EMAIL_WEBHOOK_SECRET>`. `AsyncClient` can be injected so contract tests assert the request offline. SES remains enumerated but raises `EmailNotConfigured` | SendGrid needs one bearer key that the existing settings already model, and an injected client lets CI verify the wire contract without credentials or real mail. A future SES adapter can implement the same protocol without touching callers | Adding boto3 now; committing to SES without credentials; accepting unsigned webhooks |
+| D-065 | M3 defines the WhatsApp interface, message dataclasses, and a stub provider whose methods raise `WhatsAppNotImplemented`; no factory selects a Cloud API adapter until Phase 2 | Keeps downstream signatures stable without pretending an untested vendor integration works; the task explicitly marks WhatsApp as a stub | Implementing Cloud API early; omitting the interface |
 
 ## 4. Architecture in one paragraph
 
@@ -237,6 +247,12 @@ mock. Frontend is a separate Next.js app. Full detail:
   `make dev` works without a worker; the local `.env` sets inline, tests do too,
   and the default remains `celery` for the full stack. Limits are 10,000 rows and
   10 MB per file.
+- **Email providers:** `USE_MOCK_EMAIL=true` is the default and always selects
+  the DB-backed mock, even if `EMAIL_PROVIDER=sendgrid`. The mock's webhook
+  signature is `X-Mock-Signature: sha256=<hmac>` over the raw body. SendGrid uses
+  `EMAIL_API_KEY` and Basic-auth Inbound Parse with username `sendgrid` and
+  `EMAIL_WEBHOOK_SECRET`; the opt-in live check also needs `EMAIL_CONTRACT_TO`.
+  `EMAIL_PROVIDER=ses` fails with `EmailNotConfigured` until an adapter lands.
 - **Demo logins:** `admin@enrollio.dev`, `manager@enrollio.dev`,
   `counsellor@enrollio.dev` with `SEED_DEMO_PASSWORD`. `.dev` is used because
   `EmailStr` rejects `.test` (D-023).
@@ -305,6 +321,8 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-013 | The public enquiry CAPTCHA is a mock verifier. `USE_MOCK_CAPTCHA=false` currently has no real adapter and fails closed with a 500 at the dependency | Add a Turnstile/reCAPTCHA adapter before exposing the form publicly; the provider interface and mock already exist |
 | R-014 | Public enquiry rate limiting keys on `request.client.host`; behind a reverse proxy every request may share the proxy IP and exhaust the allowance | Decide trusted-proxy/forwarded-header handling before deployment; do not trust `X-Forwarded-For` blindly |
 | R-015 | Partner API keys can be created but not listed or revoked through HTTP; rotation requires direct database updates | Add list/revoke endpoints and an audit trail before onboarding real partners |
+| R-016 | `EMAIL_PROVIDER=ses` is accepted by configuration but has no adapter, so selecting it fails with `EmailNotConfigured`; only SendGrid is implemented | Implement SES (or remove the enum value) once Q-001 is answered; mocks keep M3 unblocked |
+| R-017 | The SendGrid live contract test is skipped unless `EMAIL_API_KEY` and `EMAIL_CONTRACT_TO` are set, so CI proves the request shape through `httpx.MockTransport` but never delivers real mail | Run the opt-in live check before production and record the verified sender/domain setup |
 
 ## 8. Open implementation questions
 
@@ -313,7 +331,7 @@ These are engineering decisions; product/college questions stay in
 
 | ID | Question | Needed by |
 | --- | --- | --- |
-| Q-001 | Which real LLM provider (primary + fallback) and email provider should be the first non-mock adapters? | M3.1 / M4.4 |
+| Q-001 | Which real LLM provider (primary + fallback) and email provider should be the first non-mock adapters? **Partial 2026-11-03:** M3.1 ships SendGrid behind the existing email settings; SES remains unimplemented (R-016). LLM choice is still open. | M3.1 / M4.4 |
 | Q-002 | ~~Confirm the test-database strategy in R-001~~ **Resolved in M1.0:** dedicated `enrollio_test` database (D-013) | — |
 | Q-003 | ~~When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run?~~ **Resolved 2026-11-02:** the repository is pushed, CI runs on every push and pull request, and tasks now go through per-task branches and PRs (D-038) | — |
 | Q-004 | If the PIGSTY MinIO mirror disappears, which S3-compatible image is the fallback? | When D-006 needs revisiting |
@@ -368,3 +386,4 @@ Checklist for every task commit:
 | 2026-11-03 | M2.8: public enquiry endpoint with Redis per-IP rate limiting, mock CAPTCHA verifier, Website source, shared dedupe lead creation, web-form consent records, and duplicate detection; 315 backend tests and 4 frontend tests pass. |
 | 2026-11-03 | M2.9: migration `0007` adds source-scoped hashed API keys; admin key provisioning, API-key/Bearer authentication, import-equivalent batch validation and dedupe, per-record results and savepoint isolation, 1,000-record limit, and an HMAC webhook signature helper; 323 backend tests and 4 frontend tests pass. |
 | 2026-11-03 | M2.10: lead list with escaped search/filters/cursor paging, my-leads scoping, validated manual entry, import wizard with saved/guessed mapping and error CSV, lead detail with permission-filtered lifecycle and consent panel; backend adds catalogues, lifecycle transition endpoint, enriched names, and `allowed_transitions`; 328 backend tests, 8 frontend tests, and 6 Playwright flows pass. **Milestone M2 complete.** |
+| 2026-11-03 | M3.1: provider-neutral email contract, DB-backed mock with inbound/delivery helpers (migration `0008`), SendGrid v3 adapter over injected `httpx` with Basic-auth inbound verification, mock-first factory, WhatsApp interface and stub, contract/factory tests; 347 backend tests pass with 1 opt-in live SendGrid test skipped. |

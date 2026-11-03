@@ -10,6 +10,7 @@ from app.models.duplicate_candidate import DuplicateCandidate
 from app.models.import_job import ImportJob, ImportRowResult, MappingTemplate
 from app.models.lead import Lead
 from app.models.lead_source import LeadSource
+from app.models.mock_email_message import MockEmailMessage
 from app.models.permission import Permission
 from app.models.programme import Programme
 from app.models.refresh_token import RefreshToken
@@ -29,6 +30,7 @@ __all__ = [
     "Lead",
     "LeadSource",
     "MappingTemplate",
+    "MockEmailMessage",
     "Permission",
     "Programme",
     "RefreshToken",
