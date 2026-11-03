@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from datetime import date
+from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import CheckConstraint, Date, Index, String, text
+from sqlalchemy import CheckConstraint, Date, Index, Integer, Numeric, String, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
@@ -32,6 +33,14 @@ class Student(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="contact_present",
         ),
         CheckConstraint("email_normalised = lower(email_normalised)", name="email_lowercase"),
+        CheckConstraint(
+            "academic_score IS NULL OR (academic_score >= 0 AND academic_score <= 100)",
+            name="academic_score_range",
+        ),
+        CheckConstraint(
+            "graduation_year IS NULL OR (graduation_year >= 1900 AND graduation_year <= 2100)",
+            name="graduation_year_range",
+        ),
         Index(
             "uq_students_email_normalised",
             "email_normalised",
@@ -51,6 +60,8 @@ class Student(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     email_normalised: Mapped[str | None] = mapped_column(String(320), nullable=True)
     phone_e164: Mapped[str | None] = mapped_column(String(20), nullable=True)
     date_of_birth: Mapped[date | None] = mapped_column(Date, nullable=True)
+    academic_score: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True)
+    graduation_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     leads: Mapped[list[Lead]] = relationship(
         back_populates="student",

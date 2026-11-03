@@ -79,6 +79,22 @@ SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 CurrentUserDep = Annotated[User, Depends(get_current_user)]
 
 
+def require_any_permission(
+    *permissions: PermissionName | str,
+) -> Callable[[User], Awaitable[User]]:
+    """Build a dependency that accepts any one of ``permissions``."""
+
+    async def dependency(user: CurrentUserDep) -> User:
+        if not any(user_has_permission(user, permission) for permission in permissions):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=FORBIDDEN,
+            )
+        return user
+
+    return dependency
+
+
 def require_permission(
     permission: PermissionName | str,
 ) -> Callable[[User], Awaitable[User]]:

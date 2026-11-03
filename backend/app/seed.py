@@ -37,7 +37,9 @@ def main() -> None:
         "Seeded "
         f"{result.roles} roles, {result.permissions} permissions, "
         f"{result.role_permission_links} role-permission links, "
-        f"{result.demo_users} demo users."
+        f"{result.demo_users} demo users, "
+        f"{result.programmes} programmes, {result.campuses} campuses, "
+        f"{result.lead_sources} lead sources."
     )
 
 

@@ -64,6 +64,13 @@ class StorageProvider(StrEnum):
     s3 = "s3"
 
 
+class ImportProcessingMode(StrEnum):
+    """Where import rows are processed after a mapping is submitted."""
+
+    celery = "celery"
+    inline = "inline"
+
+
 class Settings(BaseSettings):
     """Runtime configuration.
 
@@ -105,6 +112,15 @@ class Settings(BaseSettings):
 
     # Browser origins allowed to call the API with credentials.
     CORS_ORIGINS: str = "http://localhost:3000"
+
+    # Import pipeline limits and dispatch mode.
+    IMPORT_MAX_ROWS: int = 10_000
+    IMPORT_MAX_FILE_BYTES: int = 10 * 1024 * 1024
+    IMPORT_PROCESSING_MODE: ImportProcessingMode = ImportProcessingMode.celery
+
+    # When a student has no granted promotional consent left, close active leads
+    # as Opted Out. Set false to keep lifecycle changes manual.
+    CONSENT_PROMOTIONAL_OPT_OUT_LIFECYCLE: bool = True
 
     # Development-only demo accounts. Never enabled in production.
     # `.env.example` turns this on for local development.

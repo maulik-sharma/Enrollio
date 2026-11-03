@@ -12,6 +12,7 @@ from dataclasses import dataclass
 
 from fastapi import FastAPI, HTTPException, status
 from httpx import AsyncClient, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.deps import CurrentUserDep, SessionDep
@@ -84,9 +85,8 @@ async def _seed_leads(
             role_slugs=[RoleSlug.ADMISSION_COUNSELLOR.value],
         )
 
-        programme = Programme(name="B.Tech Computer Science", code="BTECH-CSE")
-        session.add(programme)
-        await session.flush()
+        programme = await session.scalar(select(Programme).where(Programme.code == "BTECH-CSE"))
+        assert programme is not None, "seeded_database must create the demo programme"
 
         def student(marker: str) -> Student:
             return Student(

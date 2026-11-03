@@ -31,6 +31,10 @@ EXPECTED_TABLES = {
     "lead_sources",
     "consent_records",
     "timeline_events",
+    "import_jobs",
+    "mapping_templates",
+    "import_row_results",
+    "duplicate_candidates",
 }
 
 

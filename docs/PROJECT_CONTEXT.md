@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-02, after `M0.5` (CI gate verified on GitHub Actions)
-- **Current position:** M0 · M1 complete · M2.1–M2.2 complete → **next task M2.3**
+- **Last updated:** 2026-11-03, after `M2.7` (lead CRUD and search APIs)
+- **Current position:** M0 · M1 complete · M2.1–M2.7 complete → **next task M2.8**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -26,7 +26,7 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
-| M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.2 complete; next: M2.3 CSV/XLSX import pipeline |
+| M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.7 complete; next: M2.8 web enquiry form |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
@@ -60,23 +60,29 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M2.1 Lead CRM core model | ✅ | Migration `0004`: `students`, `leads`, `programmes`, `campuses`, `lead_sources`, `consent_records`, `timeline_events`; unique `(student_id, programme_id, admission_cycle)`; partial unique indexes on normalised email/phone; cross-counsellor gate now tested against real leads (Q-006 resolved) |
 | M2.2 Normalisation utilities | ✅ | `app/core/normalisation.py`: email (trim, lowercase, `email-validator`), phone (`phonenumbers`, IN default, E.164), name (whitespace collapse, case preserved), score (0–100, optional `%`); typed errors with stable reason codes; 102 parametrised cases, 100% branch coverage |
+| M2.3 CSV/XLSX import pipeline | ✅ | Migration `0005` adds `import_jobs`, `mapping_templates`, `import_row_results`, `leads.import_job_id`, and student score/graduation-year columns; `POST /api/leads/import`, mapping/start, history, template, detail, and errors CSV endpoints; CSV/XLSX parsing with 10 MB/10,000-row limits; local/memory storage adapter; Celery task with inline mode for dev/tests; exact 85/5/10 fixture counts and provenance tested |
+| M2.4 Duplicate detection and merge | ✅ | Migration `0006` adds `duplicate_candidates`; pure `decide_match` covers email-only/phone-only/both/same/conflict/name-only; name-only imports create a student + pending candidate (never auto-merge); conflicting contacts reject the row and create a candidate; `GET /api/duplicates` and `POST /api/duplicates/{id}/resolve` (`merge`, `keep_separate`, `reject`); merge moves leads/consent/timeline and fills only empty fields; re-import and non-overwrite integration tests pass |
+| M2.5 Lifecycle state machine | ✅ | `services/lifecycle.py`: explicit transition table (linear funnel, any active state to Lost/Disqualified/Unresponsive/Opted Out), actor-aware rules, `TransitionActor` for users/system/agents, terminal reopen to New Enquiry by an Admission Manager, Converted by system or manager (never an agent), one `lifecycle_transition` timeline event per change; matrix and integration tests pass |
+| M2.6 Consent management | ✅ | Append-only consent records; `POST /api/students/{id}/consent` (grant or revoke via `granted`) and `DELETE /api/students/{id}/consent/{channel}/{category}`; `can_send` blocks promotional without an explicit grant, allows transactional until explicitly revoked; revoking the last granted promotional channel closes active leads as Opted Out when `CONSENT_PROMOTIONAL_OPT_OUT_LIFECYCLE=true`; manager scope via `leads.view_all`; unit and integration tests pass |
+| M2.7 Lead CRUD and search APIs | ✅ | `GET /api/leads` with opaque cursor pagination, created/updated sorting, lifecycle/programme/source/campus/counsellor/date filters, and `leads.view_all` vs `leads.view_assigned` scoping; `GET /api/leads/{id}` returns lead, student, consent summary, and an empty assessments list until the assessment model lands; `POST /api/leads` reuses the M2.3 dedupe/merge rules and returns `duplicate_detected`; `PATCH /api/leads/{id}` edits allowed fields only, rejects lifecycle input, and requires `leads.assign` to reassign; performance test seeds 10,000 leads and checks P95 against a conservative 1.5 s threshold |
 
-### Verification snapshot (2026-11-02)
+### Verification snapshot (2026-11-03, after M2.7)
 
 ```text
-make lint                 pass (ruff, ruff format --check, mypy, eslint)
-make typecheck            pass (mypy strict, tsc --noEmit)
-make test                 200 backend tests pass, 4 frontend tests pass
-make test-e2e             4 Playwright flows pass (three roles + invalid login)
-make migrate              pass (0004 applied)
-make migrate-test         pass (0004 applied to enrollio_test)
-make seed                 pass (3 roles, 17 permissions, 3 demo users; idempotent)
-make smoke                6/6 services healthy within 120s
-docker compose build      backend + web images build
-GET /readyz               200 with PG+Redis up
-GET /readyz               HTTP 503 with the db container stopped, 200 after restart
+make lint                 pass (ruff, ruff format --check, mypy; frontend unchanged)
+make typecheck            pass (mypy strict; frontend tsc unchanged)
+make test                 304 backend tests pass, 4 frontend tests pass
+make test-e2e             not rerun for M2.3–M2.7 (no frontend route changes)
+make migrate              pass (0006 applied; M2.7 adds no migration)
+make migrate-test         pass (0006 applied; migration test upgrades/downgrades)
+make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
+                          2 campuses, 4 lead sources; idempotent)
+make smoke                not rerun after M2.3/M2.7 (host port 5432 is occupied by the
+                          local PG 18; Docker changes are storage volume and no new services)
+GET /readyz               200 with PG+Redis up (verified before M2.3)
 GET /healthz              200
 GET localhost:3000        200
+`pytest -m performance`   10,000-lead list P95 under the conservative 1.5 s threshold
 ```
 
 Normalisation coverage:
@@ -160,6 +166,24 @@ not taken.
 | D-036 | Normalisation lives in `app/core/normalisation.py`; each helper raises a `NormalisationError` subclass with a stable `code` (`invalid_email`, `invalid_phone`, `invalid_name`, `invalid_score`) | M2.3 stores those codes as import rejection reasons, so messages can change without breaking reporting | Returning `None`; string parsing of error messages |
 | D-037 | Emails are fully lowercased after `email-validator`; phones use `phonenumbers` with default region `IN` and must pass `is_valid_number`; international numbers are accepted when they carry a country code; scores become floats | Import data is messy and Indian numbers arrive in many forms; canonical values keep duplicate detection exact and country-agnostic | Storing raw input; assuming every number is Indian |
 | D-038 | The repository lives on GitHub and every task ships on a per-task branch via a pull request; `main` only moves when the PR's full four-job CI run is green (D-008 superseded) | The M0.5 gate must actually block bad code; branch protection plus a green PR is the only evidence it does | Continuing to commit to `main`; pushing without a PR |
+| D-039 | Import state lives in `import_jobs` (status, headers, mapping, counters, storage key) with one `import_row_results` row per source row; every created/merged lead stores `import_job_id` and `raw_import_row` | Counts, errors, and provenance are queryable without re-reading the file, and the raw row preserves the audit trail | Counters only; storing raw rows in logs |
+| D-040 | Upload parses CSV/XLSX synchronously (headers, 10 MB, 10,000 rows) and processing runs through a Celery task; `IMPORT_PROCESSING_MODE=inline` runs the same service in-request for local dev and tests | Invalid files fail at upload with a clear 4xx, while real imports do not hold an HTTP request; tests stay hermetic | Parsing in the worker only; always-inline processing |
+| D-041 | Import matching is exact on normalised email or phone: an existing lead for the same programme/cycle is `duplicate`; an existing student with no lead is `merged` (fill empty fields only); new identity is `created`; conflicting email/phone is `conflicting_contact` and rejected | Implements the M2.3 counts and the M2.4 fill-empty merge policy without overwriting data; conflicts are visible rather than silently merged | Fuzzy matching; overwriting non-empty student fields |
+| D-042 | `mapping_templates` is keyed by `source_name` and upserted when a job starts; `GET /api/imports/mapping-template?source_name=` returns it | Reusing a mapping is the point of the template, and source name is the user-facing grouping used by the import form | Template per uploader; mapping only on the job |
+| D-043 | Import endpoints reuse `leads.view_all`; the router maps domain errors to 400/404/409/413/422 and never exposes row contents in list/detail responses | No new permission is needed for bulk ingress, and the error CSV is the only row-level report | A separate `leads.import` permission |
+| D-044 | Storage is an interface (`Storage`) with `LocalStorage` for local/dev and `MemoryStorage` for mock mode; the factory keeps local disk even when `USE_MOCK_STORAGE=true` | Import files must survive the request and be readable by the worker; tests need an isolated temp directory without S3 | Reading files back from the HTTP request; hardcoding a vendor SDK |
+| D-045 | `duplicate_candidates` stores the existing student (`student_id`), the newly created student for name-only hits (`candidate_student_id`), the other contact owner for conflicts (`conflicting_student_id`), the import job/row, and the raw row | A reviewer needs to see both sides of the possible match, and the import row remains auditable after the job finishes | Storing only names/emails; creating a separate table per match type |
+| D-046 | Name-only matches never merge automatically: the row still creates a student/lead and records a pending `name_only` candidate (AC2.5); conflicting email/phone matches reject the row and record a `conflicting_contact` candidate for review | Preserves import throughput without silently combining people, and makes both ambiguous cases visible in one queue | Auto-merging on name; dropping name-only rows without review |
+| D-047 | Resolution actions are `merge` (fill only empty fields, move leads/consent/timeline, delete the source student), `keep_separate` (leave both), and `reject` (delete the created candidate student for a name-only hit; conflicts keep both existing students) | Gives reviewers an explicit, reversible-by-audit decision without overwriting non-empty data; moving dependent rows preserves history | Hard-deleting on reject without a record; overwriting target fields |
+| D-048 | Duplicate endpoints reuse `leads.view_all`; `GET /api/duplicates` returns pending candidates by default and `POST /api/duplicates/{id}/resolve` takes `action`, rejecting an already-resolved candidate with 409 | Keeps duplicate review in the existing lead-management scope and prevents double decisions | A new `duplicates.manage` permission; idempotent re-resolution |
+| D-049 | Lifecycle transitions are an explicit table in `services/lifecycle.py`: the funnel is linear, every active state can close to Lost/Disqualified/Unresponsive/Opted Out, and Converted is treated as terminal in the state machine; terminal leads can only reopen to New Enquiry | One reviewable table drives validation and tests; no implicit jumps, and closed leads cannot silently re-enter the funnel | Free-form status assignment; allowing skips/backward moves |
+| D-050 | `TransitionActor` carries `ActorType`, user id, role slugs, and permission names. A manager is an Admission Manager role holder or a user with `leads.view_all`; system actors can convert, agents never can, and a non-manager user cannot reopen | Reuses the existing permission matrix (no new `admission.mark_converted` permission) while enforcing AC3.4; the actor is explicit so agents cannot borrow user rights | Adding a permission; inferring the actor from ambient context |
+| D-051 | Every accepted transition writes one `lifecycle_transition` timeline event with `from_state`, `to_state`, `reason`, actor type/id; rejected transitions log the lead and states only (never the reason) and leave the lead untouched | Satisfies AC3.2 and AC3.1 without leaking free-text reasons into logs; the payload is the audit record | Mutating status without a timeline; logging reasons |
+| D-052 | Consent is append-only and the newest row for a student/channel/category wins. With no row, promotional is blocked and transactional is allowed; any explicit row (grant or revoke) overrides that default | PRD guardrail 1 forbids promotional sends without an active grant, while booking confirmations and reminders must not depend on marketing opt-in | Treating silence as promotional consent; requiring a record for transactional messages |
+| D-053 | `POST /api/students/{id}/consent` appends a grant by default and accepts `granted=false`; `DELETE .../{channel}/{category}` appends a revocation. `source`/`method` default to `staff`/`manual_entry` but can be supplied for AC4.4 | One write path keeps the audit trail intact; staff entry and unsubscribe use the same mechanism, and DELETE remains the obvious opt-out verb | Updating rows in place; separate opt-out storage |
+| D-054 | Revoking promotional consent closes every active lead as Opted Out only when no other channel still has a granted promotional record. `CONSENT_PROMOTIONAL_OPT_OUT_LIFECYCLE=false` disables the lifecycle side effect | Matches "opts out completely" and the configurable requirement, while leaving a single-channel unsubscribe with other active consents untouched; system-actor lifecycle transitions write timeline events | Opting out on any single revoke; editing lifecycle without an event |
+| D-055 | Consent endpoints reuse `leads.view_all`; unknown students are 404 and counsellors get 403 | Consent is staff administration over student records, consistent with import/duplicate review; no new permission is needed yet | A new `consent.manage` permission; allowing counsellors to change consent |
+| D-056 | M2.7 keeps one lead service for manual creation: it applies the same `decide_match` rules as import, persists name-only candidates, returns an existing lead with HTTP 200 + `duplicate_detected` instead of creating a second one, and requires at least one contact key. `GET /api/leads` uses an opaque base64 cursor containing the sort value and lead id; `leads.view_all` sees everything and `leads.view_assigned` is filtered to the caller. Detail denial is 404, lifecycle fields are rejected by PATCH (422), and assignment requires `leads.assign` | Manual entry must not bypass the import invariants; a cursor avoids offset drift while new leads arrive; scope denial must not reveal existence; keeping lifecycle in M2.5 prevents two write paths | Duplicating import logic in the router; page/offset pagination; allowing lifecycle through PATCH |
 
 ## 4. Architecture in one paragraph
 
@@ -181,6 +205,11 @@ mock. Frontend is a separate Next.js app. Full detail:
   access); otherwise compose commands fail with a permission error.
 - **Ports (host):** web 3000, API 8000, Postgres 5432, Redis 6379, MinIO 9000
   (console 9001). Compose project name: `enrollio`.
+- **Local M2.3 verification:** the host PostgreSQL 18 lacks `pgvector` and
+  occupies 5432, so the test/dev database ran in
+  `docker run ... -p 55432:5432 pgvector/pgvector:pg16` (database `enrollio`,
+  test database `enrollio_test`); the local `.env` points both URLs at 55432.
+  This is a workstation quirk, not the project default.
 - **Compose startup order:** `db`/`redis`/`minio` healthy → `api` runs
   `alembic upgrade head` then Uvicorn → `web` waits for healthy `api`.
 - **MinIO:** official images are unavailable; see D-006. `curl` exists in the
@@ -190,8 +219,14 @@ mock. Frontend is a separate Next.js app. Full detail:
   skips if closed. The database never falls back to `DATABASE_URL`; its name must
   end in `_test`. Use `make create-test-db` once per fresh volume and
   `make migrate-test` after adding migrations.
-- **Seed:** `make seed` upserts the RBAC catalog and creates the three demo
-  accounts. It is idempotent; `SEED_DEMO_USERS=false` keeps accounts out.
+- **Seed:** `make seed` upserts the RBAC catalog, creates the three demo
+  accounts, and adds demo programmes, campuses, and lead sources for imports.
+  It is idempotent; `SEED_DEMO_USERS=false` keeps users out.
+- **Imports:** uploaded files are parsed synchronously, then rows run through a
+  Celery task. `IMPORT_PROCESSING_MODE=inline` processes them in the request so
+  `make dev` works without a worker; the local `.env` sets inline, tests do too,
+  and the default remains `celery` for the full stack. Limits are 10,000 rows and
+  10 MB per file.
 - **Demo logins:** `admin@enrollio.dev`, `manager@enrollio.dev`,
   `counsellor@enrollio.dev` with `SEED_DEMO_PASSWORD`. `.dev` is used because
   `EmailStr` rejects `.test` (D-023).
@@ -245,12 +280,15 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-001 | ~~**Integration tests use the dev database.**~~ **Resolved by D-013 (M1.0).** Tests now use `enrollio_test`, the migration test refuses non-`_test` names, and a sentinel test proves the dev database survives | Done; keep the guard |
 | R-002 | ~~`docs/plan.md` M0.5's "deliberately failing test" gate has never run, because nothing is pushed~~ **Resolved 2026-11-02:** runs `41387484976` and `41387583084` failed on a deliberate probe (lint and pytest respectively); `main` run `41387057466` passes all four jobs (D-038) | Keep `main` green; never merge a red PR |
 | R-003 | MinIO is served by a third-party mirror | Tag is pinned; image only exposes the S3 API. If unavailable, switch to another S3-compatible image (D-006) |
-| R-004 | ~~**No authentication or RBAC.**~~ **Resolved in M1.2–M1.3:** authentication is live, `require_permission`/`can_access_lead` are available, and M2.1 proved the cross-counsellor gate against real leads. No lead data endpoint exists yet | Every new endpoint must declare a permission and a resource scope; `/api/leads` in M2.7 is the first real test |
+| R-004 | ~~**No authentication or RBAC.**~~ **Resolved in M1.2–M1.3, and M2.7 now exercises the real lead endpoints:** `GET/PATCH /api/leads/{id}` return 404 for another counsellor and 200 for the assigned owner or a `leads.view_all` manager; list results are scoped identically | Every new endpoint must declare a permission and a resource scope |
 | R-005 | Provider choices for M3/M4 are undecided | Answer Q-001 before M3.1; mocks keep progress unblocked |
 | R-006 | CI has no secret scanning, dependency audit, or coverage gate yet | Add when the plan's security/testing tasks require it; not M0 scope |
 | R-007 | `docs/plan.md` M0 requires Python 3.12 but the host ships 3.14 | The 3.12 interpreter is installed via uv; document this for new machines |
 | R-008 | The last System Admin can deactivate themselves or strip `users.manage`/`roles.manage` from `system_admin`, leaving no one able to administer the system | Add the guard decided in Q-007 before any shared deployment; acceptable for local development |
 | R-009 | The frontend route guard is cosmetic: a user can open any `/sections/*` URL | Routes render no data; every API call is authorised server-side. Never move access checks into the UI only |
+| R-010 | ~~M2.3 rejects a row whose email and phone point at different existing students without a review record~~ **Resolved in M2.4:** conflicting contacts now reject the row and create a pending `duplicate_candidates` entry; name-only matches create candidates without auto-merging | Done; keep the stable `conflicting_contact` reason |
+| R-011 | M2.5 ships the lifecycle service but no HTTP endpoint; M2.7 rejects `lifecycle_status` in `PATCH /api/leads/{id}` | Add a dedicated transition endpoint (with actor/reason and permission checks) before the frontend needs manual transitions |
+| R-012 | `GET /api/leads/{id}` returns `assessments: []` because no assessment table/model exists yet, although the M2.7 plan names latest assessments | Wire the query when M6.1 adds assessments; the response shape already reserves the field |
 
 ## 8. Open implementation questions
 
@@ -306,3 +344,8 @@ Checklist for every task commit:
 | 2026-11-02 | M2.1: migration `0004` adds students, leads, programmes, campuses, lead sources, consent records, and timeline events; lead uniqueness and student contact keys enforced in the database; Q-006 cross-counsellor gate tested against real leads. |
 | 2026-11-02 | M2.2: email/phone/name/score normalisers with typed reason codes, `phonenumbers` dependency, 102 cases at 100% branch coverage. |
 | 2026-11-02 | M0.5: repository pushed; CI verified on GitHub Actions (green `main` run `41387057466`; deliberate probe failed lint then pytest on PR #1). R-002 and Q-003 resolved; tasks now ship on per-task branches with a green PR before merge (D-038). |
+| 2026-11-02 | M2.3: migration `0005`, import jobs/templates/row results, CSV/XLSX upload with limits, mapping/start (Celery or inline), duplicate/merge/reject outcomes, error CSV, local/memory storage, demo catalogue seed; 240 backend tests and 4 frontend tests pass. |
+| 2026-11-02 | M2.4: migration `0006` adds duplicate candidates; exact contact/name matching, pending review for name-only and conflicting contacts, merge/keep-separate/reject resolution, and non-overwrite tests; 249 backend tests and 4 frontend tests pass. |
+| 2026-11-02 | M2.5: explicit lifecycle transition table, actor-aware rules (agents cannot convert), manager-only terminal reopen, one timeline event per transition; 290 backend tests and 4 frontend tests pass. |
+| 2026-11-02 | M2.6: append-only consent API, promotional/transactional send checks, configurable promotional opt-out closing active leads, and tests; 297 backend tests and 4 frontend tests pass. |
+| 2026-11-03 | M2.7: cursor-paginated scoped lead list with filters and sorting, lead detail with student/consent summary, manual creation through the shared dedupe path, lifecycle-free PATCH, assignment checks, and a 10,000-lead P95 performance test; 304 backend tests and 4 frontend tests pass. |

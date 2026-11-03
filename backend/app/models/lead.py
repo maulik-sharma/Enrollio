@@ -15,6 +15,7 @@ from app.models.types import enum_column
 
 if TYPE_CHECKING:
     from app.models.campus import Campus
+    from app.models.import_job import ImportJob
     from app.models.lead_source import LeadSource
     from app.models.programme import Programme
     from app.models.student import Student
@@ -39,6 +40,7 @@ class Lead(UUIDPrimaryKeyMixin, TimestampMixin, Base):
             name="uq_leads_student_programme_cycle",
         ),
         Index("ix_leads_assigned_counsellor_id", "assigned_counsellor_id"),
+        Index("ix_leads_import_job_id", "import_job_id"),
         Index("ix_leads_lifecycle_status", "lifecycle_status"),
         Index("ix_leads_student_id", "student_id"),
     )
@@ -69,6 +71,10 @@ class Lead(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
     )
+    import_job_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("import_jobs.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     raw_import_row: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
     student: Mapped[Student] = relationship(back_populates="leads")
@@ -76,4 +82,5 @@ class Lead(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     campus: Mapped[Campus | None] = relationship(back_populates="leads")
     source: Mapped[LeadSource | None] = relationship(back_populates="leads")
     assigned_counsellor: Mapped[User | None] = relationship()
+    import_job: Mapped[ImportJob | None] = relationship(back_populates="leads")
     timeline_events: Mapped[list[TimelineEvent]] = relationship(back_populates="lead")

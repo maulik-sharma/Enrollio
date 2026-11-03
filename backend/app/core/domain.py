@@ -53,6 +53,46 @@ class ConsentCategory(StrEnum):
     PROMOTIONAL = "promotional"
 
 
+class ImportJobStatus(StrEnum):
+    """Lifecycle of one uploaded file."""
+
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class ImportRowStatus(StrEnum):
+    """Outcome for one row in an import file."""
+
+    CREATED = "created"
+    MERGED = "merged"
+    REJECTED = "rejected"
+    DUPLICATE = "duplicate"
+
+
+class DuplicateMatchReason(StrEnum):
+    """Why an import row was flagged for duplicate review."""
+
+    NAME_ONLY = "name_only"
+    CONFLICTING_CONTACT = "conflicting_contact"
+
+
+class DuplicateCandidateStatus(StrEnum):
+    """Review state of a possible duplicate."""
+
+    PENDING = "pending"
+    RESOLVED = "resolved"
+
+
+class DuplicateResolution(StrEnum):
+    """Manual decision for a possible duplicate."""
+
+    MERGED = "merged"
+    KEPT_SEPARATE = "kept_separate"
+    REJECTED = "rejected"
+
+
 LIFECYCLE_TERMINAL_STATES: frozenset[LifecycleStatus] = frozenset(
     {
         LifecycleStatus.LOST,

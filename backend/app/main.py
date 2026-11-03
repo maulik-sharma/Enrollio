@@ -11,8 +11,12 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app import __version__
 from app.api.auth import router as auth_router
+from app.api.duplicates import router as duplicates_router
 from app.api.health import router as health_router
+from app.api.imports import router as imports_router
+from app.api.leads import router as leads_router
 from app.api.roles import router as roles_router
+from app.api.students import router as students_router
 from app.api.users import router as users_router
 from app.core.config import Settings, get_settings
 from app.core.database import create_engine
@@ -59,6 +63,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(auth_router)
     application.include_router(users_router)
     application.include_router(roles_router)
+    application.include_router(students_router)
+    application.include_router(duplicates_router)
+    application.include_router(imports_router)
+    application.include_router(leads_router)
     return application
 
 

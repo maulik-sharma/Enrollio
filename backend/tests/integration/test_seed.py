@@ -10,7 +10,10 @@ from app.core.config import Environment, Settings
 from app.core.permissions import ROLE_DEFINITIONS, RoleSlug
 from app.core.security import verify_password
 from app.models.associations import role_permissions, user_roles
+from app.models.campus import Campus
+from app.models.lead_source import LeadSource
 from app.models.permission import Permission
+from app.models.programme import Programme
 from app.models.role import Role
 from app.models.user import User
 from app.services.seed import seed_all
@@ -56,6 +59,9 @@ async def test_seed_is_idempotent_and_matches_the_matrix(
     assert first.permissions == EXPECTED_PERMISSIONS
     assert first.role_permission_links == EXPECTED_LINKS
     assert first.demo_users == 3
+    assert first.programmes == 4
+    assert first.campuses == 2
+    assert first.lead_sources == 4
 
     async with db_session_factory() as session:
         assert (await session.execute(select(func.count()).select_from(Role))).scalar_one() == 3
@@ -69,6 +75,13 @@ async def test_seed_is_idempotent_and_matches_the_matrix(
         assert (
             await session.execute(select(func.count()).select_from(user_roles))
         ).scalar_one() == 3
+        assert (
+            await session.execute(select(func.count()).select_from(Programme))
+        ).scalar_one() == 4
+        assert (await session.execute(select(func.count()).select_from(Campus))).scalar_one() == 2
+        assert (
+            await session.execute(select(func.count()).select_from(LeadSource))
+        ).scalar_one() == 4
 
         roles = (
             (
