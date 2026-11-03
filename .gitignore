@@ -9,6 +9,9 @@ venv/
 .ruff_cache/
 .coverage
 htmlcov/
+# Local upload storage, not the storage integration package.
+/storage/
+/backend/storage/
 
 # Logs
 logs
@@ -80,6 +83,7 @@ web_modules/
 # dotenv environment variable files
 .env
 .env.*
+/env
 !.env.example
 
 # parcel-bundler cache (https://parceljs.org/)

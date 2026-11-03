@@ -25,6 +25,7 @@ MOCK_FLAGS = (
     "USE_MOCK_LLM",
     "USE_MOCK_SPEECH",
     "USE_MOCK_STORAGE",
+    "USE_MOCK_CAPTCHA",
 )
 
 

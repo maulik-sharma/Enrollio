@@ -17,7 +17,10 @@ from app.core.permissions import (
 )
 from app.core.security import hash_password
 from app.models.associations import role_permissions, user_roles
+from app.models.campus import Campus
+from app.models.lead_source import LeadSource
 from app.models.permission import Permission
+from app.models.programme import Programme
 from app.models.role import Role
 from app.models.user import User
 
@@ -35,6 +38,23 @@ LEGACY_DEMO_EMAILS: tuple[str, ...] = (
     "counsellor@example.test",
 )
 
+DEMO_PROGRAMMES: tuple[tuple[str, str], ...] = (
+    ("B.Tech Computer Science", "BTECH-CSE"),
+    ("BBA", "BBA"),
+    ("MBA", "MBA"),
+    ("B.Sc Data Science", "BSC-DS"),
+)
+DEMO_CAMPUSES: tuple[tuple[str, str], ...] = (
+    ("Main Campus", "Pune"),
+    ("North Campus", "Delhi"),
+)
+DEMO_LEAD_SOURCES: tuple[str, ...] = (
+    "Website",
+    "Education Fair",
+    "Referral",
+    "Coaching Partner",
+)
+
 
 @dataclass(frozen=True)
 class SeedResult:
@@ -42,6 +62,9 @@ class SeedResult:
     permissions: int
     role_permission_links: int
     demo_users: int
+    programmes: int
+    campuses: int
+    lead_sources: int
 
 
 async def seed_rbac(session: AsyncSession) -> tuple[int, int, int]:
@@ -136,16 +159,44 @@ async def seed_demo_users(session: AsyncSession, settings: Settings) -> int:
     return len(DEMO_USERS)
 
 
+async def seed_catalogues(session: AsyncSession) -> tuple[int, int, int]:
+    """Create the demo programmes, campuses, and lead sources once."""
+    existing_programmes = set((await session.execute(select(Programme.name))).scalars())
+    for name, code in DEMO_PROGRAMMES:
+        if name not in existing_programmes:
+            session.add(Programme(name=name, code=code))
+
+    existing_campuses = set((await session.execute(select(Campus.name))).scalars())
+    for name, city in DEMO_CAMPUSES:
+        if name not in existing_campuses:
+            session.add(Campus(name=name, city=city))
+
+    existing_sources = set((await session.execute(select(LeadSource.name))).scalars())
+    for name in DEMO_LEAD_SOURCES:
+        if name not in existing_sources:
+            session.add(LeadSource(name=name))
+
+    await session.flush()
+    return len(DEMO_PROGRAMMES), len(DEMO_CAMPUSES), len(DEMO_LEAD_SOURCES)
+
+
 async def seed_all(session: AsyncSession, settings: Settings) -> SeedResult:
-    """Seed RBAC and, outside production, the demo accounts."""
+    """Seed RBAC and, outside production, the demo accounts and catalogue."""
     roles, permissions, links = await seed_rbac(session)
     demo_users = 0
+    programmes = 0
+    campuses = 0
+    lead_sources = 0
     if settings.SEED_DEMO_USERS:
         demo_users = await seed_demo_users(session, settings)
+        programmes, campuses, lead_sources = await seed_catalogues(session)
 
     return SeedResult(
         roles=roles,
         permissions=permissions,
         role_permission_links=links,
         demo_users=demo_users,
+        programmes=programmes,
+        campuses=campuses,
+        lead_sources=lead_sources,
     )

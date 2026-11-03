@@ -34,4 +34,5 @@ asyncio_default_fixture_loop_scope = "function"
 addopts = "-ra"
 markers = [
     "integration: requires Postgres and Redis (see Makefile targets)",
+    "performance: timing-sensitive pagination checks",
 ]

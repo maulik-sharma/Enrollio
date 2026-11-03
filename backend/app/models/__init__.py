@@ -5,6 +5,8 @@ from __future__ import annotations
 from app.models.base import Base
 from app.models.campus import Campus
 from app.models.consent_record import ConsentRecord
+from app.models.duplicate_candidate import DuplicateCandidate
+from app.models.import_job import ImportJob, ImportRowResult, MappingTemplate
 from app.models.lead import Lead
 from app.models.lead_source import LeadSource
 from app.models.permission import Permission
@@ -19,8 +21,12 @@ __all__ = [
     "Base",
     "Campus",
     "ConsentRecord",
+    "DuplicateCandidate",
+    "ImportJob",
+    "ImportRowResult",
     "Lead",
     "LeadSource",
+    "MappingTemplate",
     "Permission",
     "Programme",
     "RefreshToken",
