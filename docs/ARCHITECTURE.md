@@ -522,6 +522,17 @@ tests exercise the request shape offline; a live send test runs only when
 `EMAIL_API_KEY` and `EMAIL_CONTRACT_TO` are set. `EMAIL_PROVIDER=ses` has no
 adapter yet and raises `EmailNotConfigured` (R-016).
 
+`ResendEmailProvider` posts to `https://api.resend.com/emails` with a Bearer
+key, maps `EmailMessage.metadata` to Resend tags, and reads the response `id`.
+Resend webhooks are Svix-signed: `verify_webhook` checks `svix-id`,
+`svix-timestamp` (five-minute tolerance), and `svix-signature` over the raw
+body using `EMAIL_WEBHOOK_SECRET` in `whsec_...` form. `email.received` events
+contain metadata only, so `parse_inbound` fetches
+`GET /emails/receiving/{email_id}` for the subject, text/HTML body, and headers,
+then normalises the message. Tests can use `svix_headers`/`build_svix_signature`
+to sign payloads without the Resend SDK. An opt-in live send runs only with
+`EMAIL_PROVIDER=resend`, `EMAIL_API_KEY`, and `EMAIL_CONTRACT_TO` (D-067).
+
 WhatsApp is interface-only in M3: `WhatsAppProvider`, `WhatsAppMessage`,
 `InboundWhatsAppMessage`, and a `StubWhatsAppProvider` whose methods raise
 `WhatsAppNotImplemented`. The Cloud API adapter belongs to Phase 2.
@@ -649,14 +660,17 @@ push 500 leads successfully. `tests/unit/test_webhooks.py` covers valid HMAC
 signatures, tampering, wrong secrets, stale timestamps, and malformed headers.
 
 Provider contract tests (`tests/integration/test_email_provider_contract.py`)
-parameterise the mock and a SendGrid adapter backed by `httpx.MockTransport`:
-both must return a provider id and record the send, parse the shared inbound
-payload, and reject an unsigned webhook. Mock-only tests cover HMAC body binding,
-delivery-event status changes, inbound reply linkage, duplicate inbound ids, and
-the unknown-message error. SendGrid-only tests inspect the v3 payload/auth header
-and a non-2xx failure; a live send is skipped unless `EMAIL_API_KEY` and
-`EMAIL_CONTRACT_TO` are set. Factory/default and WhatsApp stub tests live in
-`tests/unit/test_email_providers.py`.
+parameterise the mock, a SendGrid adapter, and a Resend adapter backed by
+`httpx.MockTransport`: each must return a provider id and record the send, parse
+the shared inbound payload, and reject an unsigned webhook. Mock-only tests cover
+HMAC body binding, delivery-event status changes, inbound reply linkage,
+duplicate inbound ids, and the unknown-message error. SendGrid-only tests inspect
+the v3 payload/auth header and a non-2xx failure. Resend-only tests inspect the
+`/emails` payload and tags, the metadata-only `email.received` fetch path, and
+stale/tampered/missing Svix signatures. Live sends are skipped unless the
+provider opt-in variables are set (`EMAIL_API_KEY` + `EMAIL_CONTRACT_TO`, plus
+`EMAIL_PROVIDER=resend` for Resend). Factory/default and WhatsApp stub tests live
+in `tests/unit/test_email_providers.py`.
 
 Messaging model tests (`tests/integration/test_message_model.py`) prove the
 M3.2 guarantees against PostgreSQL: conversation defaults and the unique

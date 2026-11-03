@@ -4,7 +4,7 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-03, after `M3.2` (message and conversation data model)
+- **Last updated:** 2026-11-03, after the `Resend` email adapter (M3.1 extension)
 - **Current position:** M0 · M1 · M2 complete · M3.1–M3.2 complete → **next task M3.3**
 - **Maintainers:** every contributor, in the same commit as the task
 
@@ -73,15 +73,15 @@ project is operated, and what is still open.
 
 | Task | Status | What exists |
 | --- | --- | --- |
-| M3.1 Provider interfaces and mocks | ✅ | `EmailProvider` protocol (`send`, `parse_inbound`, `verify_webhook`) and provider-neutral `EmailMessage`/`InboundMessage`; DB-backed `MockEmailProvider` (migration `0008` creates `mock_email_messages`) with outbound sends, inbound-reply capture, and delivery-event helpers; SendGrid v3 adapter over `httpx` with injected-client contract tests and Basic-auth Inbound Parse verification; factory defaults to the mock and fails closed for SES; WhatsApp interface plus a stub that raises `WhatsAppNotImplemented` |
+| M3.1 Provider interfaces and mocks | ✅ | `EmailProvider` protocol (`send`, `parse_inbound`, `verify_webhook`) and provider-neutral `EmailMessage`/`InboundMessage`; DB-backed `MockEmailProvider` (migration `0008` creates `mock_email_messages`) with outbound sends, inbound-reply capture, and delivery-event helpers; SendGrid v3 and Resend HTTP adapters over injected `httpx` with offline contract tests, Basic-auth Inbound Parse verification, and Svix-signed Resend webhooks that fetch the received body; factory defaults to the mock and fails closed for SES; WhatsApp interface plus a stub that raises `WhatsAppNotImplemented` |
 | M3.2 Message and conversation data model | ✅ | Migration `0009` adds `conversations` (one per lead/channel, open/closed, `last_message_at`), `messages` (direction, channel, text/HTML, provider id unique per channel, status, intent, nullable `created_by_agent_action_id`), and `message_events` (event type, globally unique `provider_event_id`, `occurred_at`); lead → conversation → message → event deletes cascade, and a duplicate provider event is rejected without applying a second status change |
 
-### Verification snapshot (2026-11-03, after M3.2)
+### Verification snapshot (2026-11-03, after the Resend adapter)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy; ESLint)
 make typecheck            pass (mypy strict; frontend tsc --noEmit)
-make test                 352 backend tests pass (1 opt-in live SendGrid test skipped),
+make test                 360 backend tests pass (2 opt-in live provider checks skipped),
                           8 frontend tests pass
 make test-e2e             6 Playwright tests pass locally with the API on :8000 and
                           IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3 has no UI change)
@@ -206,6 +206,7 @@ not taken.
 | D-064 | The first real email adapter is SendGrid: `httpx` posts the v3 payload, the `X-Message-Id` header is the provider id, non-2xx/transport failures raise `EmailDeliveryError`, and Inbound Parse webhooks require HTTP Basic auth `sendgrid:<EMAIL_WEBHOOK_SECRET>`. `AsyncClient` can be injected so contract tests assert the request offline. SES remains enumerated but raises `EmailNotConfigured` | SendGrid needs one bearer key that the existing settings already model, and an injected client lets CI verify the wire contract without credentials or real mail. A future SES adapter can implement the same protocol without touching callers | Adding boto3 now; committing to SES without credentials; accepting unsigned webhooks |
 | D-065 | M3 defines the WhatsApp interface, message dataclasses, and a stub provider whose methods raise `WhatsAppNotImplemented`; no factory selects a Cloud API adapter until Phase 2 | Keeps downstream signatures stable without pretending an untested vendor integration works; the task explicitly marks WhatsApp as a stub | Implementing Cloud API early; omitting the interface |
 | D-066 | M3.2 stores messaging state in three tables: `conversations` is unique per `(lead_id, channel)` and carries `last_message_at`; `messages` denormalises `channel`, scopes `provider_message_id` uniqueness to the channel, and keeps `created_by_agent_action_id` as a plain UUID; `message_events` holds an append-only event log with a globally unique `provider_event_id`. Deletes cascade lead → conversation → message → event, and webhook handlers must insert the event before applying a status change so a replayed event fails the unique constraint | One thread per lead/channel makes inbound and outbound paths converge without a race; provider ids are only unique inside a provider namespace; the event uniqueness is the idempotency boundary, and ordering the insert first prevents a duplicate payload from mutating message state | A second thread per lead/channel; global provider-message uniqueness that blocks cross-channel ids; updating status before recording the event; storing the agent action as a hard FK before the agent-run table exists |
+| D-067 | Resend is the second real email adapter. Sending posts to `https://api.resend.com/emails` with a Bearer key and reads the response `id`; metadata becomes Resend tags. Inbound `email.received` webhooks are verified as Svix signatures (`svix-id`, `svix-timestamp`, `svix-signature`, five-minute tolerance), then the adapter fetches `GET /emails/receiving/{id}` for subject, body, and headers because Resend webhooks carry metadata only. `EMAIL_WEBHOOK_SECRET` is the `whsec_...` signing secret for Resend and the Basic-auth password for SendGrid | Resend provides inbound email with a single provider, and fetching the body is the documented flow; implementing the signature check locally keeps `httpx` as the only HTTP dependency and avoids a vendor SDK. The generic email settings mean switching providers changes one enum value | Treating the metadata-only webhook as a full message; skipping Svix verification; importing the Resend SDK into business code |
 
 ## 4. Architecture in one paragraph
 
@@ -250,11 +251,14 @@ mock. Frontend is a separate Next.js app. Full detail:
   and the default remains `celery` for the full stack. Limits are 10,000 rows and
   10 MB per file.
 - **Email providers:** `USE_MOCK_EMAIL=true` is the default and always selects
-  the DB-backed mock, even if `EMAIL_PROVIDER=sendgrid`. The mock's webhook
-  signature is `X-Mock-Signature: sha256=<hmac>` over the raw body. SendGrid uses
-  `EMAIL_API_KEY` and Basic-auth Inbound Parse with username `sendgrid` and
-  `EMAIL_WEBHOOK_SECRET`; the opt-in live check also needs `EMAIL_CONTRACT_TO`.
-  `EMAIL_PROVIDER=ses` fails with `EmailNotConfigured` until an adapter lands.
+  the DB-backed mock, even if `EMAIL_PROVIDER` names SendGrid or Resend. The
+  mock's webhook signature is `X-Mock-Signature: sha256=<hmac>` over the raw
+  body. SendGrid uses `EMAIL_API_KEY` and Basic-auth Inbound Parse with username
+  `sendgrid` and `EMAIL_WEBHOOK_SECRET`. Resend uses the same Bearer key and a
+  `whsec_...` Svix signing secret, then fetches the received body. The opt-in
+  live checks also need `EMAIL_CONTRACT_TO` (plus `EMAIL_PROVIDER=resend` for
+  Resend). `EMAIL_PROVIDER=ses` fails with `EmailNotConfigured` until an adapter
+  lands.
 - **Demo logins:** `admin@enrollio.dev`, `manager@enrollio.dev`,
   `counsellor@enrollio.dev` with `SEED_DEMO_PASSWORD`. `.dev` is used because
   `EmailStr` rejects `.test` (D-023).
@@ -323,8 +327,8 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-013 | The public enquiry CAPTCHA is a mock verifier. `USE_MOCK_CAPTCHA=false` currently has no real adapter and fails closed with a 500 at the dependency | Add a Turnstile/reCAPTCHA adapter before exposing the form publicly; the provider interface and mock already exist |
 | R-014 | Public enquiry rate limiting keys on `request.client.host`; behind a reverse proxy every request may share the proxy IP and exhaust the allowance | Decide trusted-proxy/forwarded-header handling before deployment; do not trust `X-Forwarded-For` blindly |
 | R-015 | Partner API keys can be created but not listed or revoked through HTTP; rotation requires direct database updates | Add list/revoke endpoints and an audit trail before onboarding real partners |
-| R-016 | `EMAIL_PROVIDER=ses` is accepted by configuration but has no adapter, so selecting it fails with `EmailNotConfigured`; only SendGrid is implemented | Implement SES (or remove the enum value) once Q-001 is answered; mocks keep M3 unblocked |
-| R-017 | The SendGrid live contract test is skipped unless `EMAIL_API_KEY` and `EMAIL_CONTRACT_TO` are set, so CI proves the request shape through `httpx.MockTransport` but never delivers real mail | Run the opt-in live check before production and record the verified sender/domain setup |
+| R-016 | `EMAIL_PROVIDER=ses` is accepted by configuration but has no adapter, so selecting it fails with `EmailNotConfigured`; SendGrid and Resend are implemented | Implement SES (or remove the enum value) once Q-001 is answered; mocks keep M3 unblocked |
+| R-017 | The live SendGrid and Resend contract tests are skipped unless their opt-in environment is set, so CI proves both request shapes through `httpx.MockTransport` but never delivers real mail. The SendGrid check needs `EMAIL_API_KEY` + `EMAIL_CONTRACT_TO`; the Resend check additionally needs `EMAIL_PROVIDER=resend` | Run the opt-in live checks before production and record the verified sender/domain setup |
 
 ## 8. Open implementation questions
 
@@ -333,7 +337,7 @@ These are engineering decisions; product/college questions stay in
 
 | ID | Question | Needed by |
 | --- | --- | --- |
-| Q-001 | Which real LLM provider (primary + fallback) and email provider should be the first non-mock adapters? **Partial 2026-11-03:** M3.1 ships SendGrid behind the existing email settings; SES remains unimplemented (R-016). LLM choice is still open. | M3.1 / M4.4 |
+| Q-001 | Which real LLM provider (primary + fallback) and email provider should be the first non-mock adapters? **Partial 2026-11-03:** M3.1 ships SendGrid and Resend behind the existing email settings; SES remains unimplemented (R-016). LLM choice is still open. | M3.1 / M4.4 |
 | Q-002 | ~~Confirm the test-database strategy in R-001~~ **Resolved in M1.0:** dedicated `enrollio_test` database (D-013) | — |
 | Q-003 | ~~When do we push the repository and switch to per-task branches so CI and the M0.5 gate actually run?~~ **Resolved 2026-11-02:** the repository is pushed, CI runs on every push and pull request, and tasks now go through per-task branches and PRs (D-038) | — |
 | Q-004 | If the PIGSTY MinIO mirror disappears, which S3-compatible image is the fallback? | When D-006 needs revisiting |
@@ -390,3 +394,4 @@ Checklist for every task commit:
 | 2026-11-03 | M2.10: lead list with escaped search/filters/cursor paging, my-leads scoping, validated manual entry, import wizard with saved/guessed mapping and error CSV, lead detail with permission-filtered lifecycle and consent panel; backend adds catalogues, lifecycle transition endpoint, enriched names, and `allowed_transitions`; 328 backend tests, 8 frontend tests, and 6 Playwright flows pass. **Milestone M2 complete.** |
 | 2026-11-03 | M3.1: provider-neutral email contract, DB-backed mock with inbound/delivery helpers (migration `0008`), SendGrid v3 adapter over injected `httpx` with Basic-auth inbound verification, mock-first factory, WhatsApp interface and stub, contract/factory tests; 347 backend tests pass with 1 opt-in live SendGrid test skipped. |
 | 2026-11-03 | M3.2: migration `0009` adds `conversations`, `messages`, and `message_events` with one thread per lead/channel, channel-scoped provider message ids, globally unique provider event ids, and lead → conversation → message → event cascades; integration tests prove conversation defaults/uniqueness, provider message uniqueness, duplicate-event rejection without a second status change, and SQL/ORM cascade deletion; 352 backend tests pass with 1 opt-in live SendGrid test skipped. |
+| 2026-11-03 | Resend adapter (M3.1 extension): `POST /emails` sending with tags, Svix signature verification with a five-minute tolerance, `email.received` handling that fetches `/emails/receiving/{id}` for the body, factory selection via `EMAIL_PROVIDER=resend`, shared contract tests across mock/SendGrid/Resend, Resend payload/inbound/signature tests, and opt-in live checks; 360 backend tests pass with 2 live provider checks skipped. |

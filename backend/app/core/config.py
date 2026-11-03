@@ -41,6 +41,7 @@ class EmailProvider(StrEnum):
     mock = "mock"
     ses = "ses"
     sendgrid = "sendgrid"
+    resend = "resend"
 
 
 class WhatsAppProvider(StrEnum):
