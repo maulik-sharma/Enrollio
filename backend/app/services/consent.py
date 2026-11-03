@@ -60,6 +60,7 @@ async def record_consent(
     source: str,
     method: str,
     granted: bool = True,
+    commit: bool = True,
 ) -> ConsentRecord:
     """Append a grant or revocation and close promotional leads when needed."""
     student = await students_repo.get(session, student_id)
@@ -85,8 +86,9 @@ async def record_consent(
     ):
         await _close_active_leads(session, student_id)
 
-    await session.commit()
-    await session.refresh(record)
+    if commit:
+        await session.commit()
+        await session.refresh(record)
     return record
 
 

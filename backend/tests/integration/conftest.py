@@ -49,11 +49,16 @@ def migrated_test_database() -> Iterator[None]:
 
 
 @pytest.fixture
-def test_settings(database_url: str, tmp_path_factory: pytest.TempPathFactory) -> Settings:
+def test_settings(
+    database_url: str,
+    redis_url: str,
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Settings:
     """Hermetic settings for API tests."""
     return Settings(
         ENV=Environment.test,
         DATABASE_URL=database_url,
+        REDIS_URL=redis_url,
         IMPORT_PROCESSING_MODE="inline",
         USE_MOCK_STORAGE=False,
         LOCAL_STORAGE_PATH=str(tmp_path_factory.mktemp("import-storage")),

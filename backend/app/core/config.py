@@ -122,6 +122,11 @@ class Settings(BaseSettings):
     # as Opted Out. Set false to keep lifecycle changes manual.
     CONSENT_PROMOTIONAL_OPT_OUT_LIFECYCLE: bool = True
 
+    # Public web enquiry rate limit: fixed window keyed by client IP.
+    ENQUIRY_RATE_LIMIT_PER_HOUR: int = 10
+    ENQUIRY_RATE_LIMIT_WINDOW_SECONDS: int = 3600
+    USE_MOCK_CAPTCHA: bool = True
+
     # Development-only demo accounts. Never enabled in production.
     # `.env.example` turns this on for local development.
     SEED_DEMO_USERS: bool = False

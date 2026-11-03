@@ -1,8 +1,9 @@
 # Architecture
 
-> Status: Milestones M0, M1, and M2.1–M2.7 (foundation, identity, lead CRM
+> Status: Milestones M0, M1, and M2.1–M2.8 (foundation, identity, lead CRM
 > schema, normalisation, CSV/XLSX import, duplicate review, lifecycle, consent,
-> and lead CRUD/search). This document is updated as milestones land.
+> lead CRUD/search, and the public web enquiry form). This document is updated as
+> milestones land.
 
 ## 1. Repository layout
 
@@ -401,6 +402,29 @@ and phone remain unique across students; clearing both is a 422. Changing
 `assigned_counsellor_id` also requires `leads.assign`. Lifecycle writes continue
 to go through M2.5 (R-011).
 
+### Public web enquiries (M2.8)
+
+`POST /api/public/enquiries` is the only unauthenticated write path. The request
+is validated and normalised with the M2.2 helpers, then `services.enquiries`
+applies the same ordering every time:
+
+1. Redis fixed-window rate limit keyed by client IP (default 10 requests per
+   3,600 seconds; Lua makes the increment + first expiry atomic). Redis failure
+   is a 503, not an unlimited path.
+2. CAPTCHA verification through `integrations/captcha`; the current adapter is a
+   deterministic mock, selected while `USE_MOCK_CAPTCHA=true`.
+3. `create_or_get_lead` with the `Website` source, so duplicates, name-only
+   candidates, and conflicting contacts follow the import/M2.7 rules.
+4. Consent rows with `source=method=web_form` for the channels supplied:
+   promotional and/or transactional for email, and for WhatsApp when a phone is
+   present. Missing checkboxes create no consent row.
+
+The endpoint returns only the lead/student ids, `duplicate_detected`, and a
+`received` status; it never echoes contact data. The lead is immediately visible
+in `GET /api/leads` to a manager. Programmes can be selected by id, name, or code;
+campuses by id or name. The optional message is accepted but not persisted
+because no enquiry-message column exists yet.
+
 ## 9. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -408,8 +432,8 @@ enables the `vector`, `btree_gist`, and `pgcrypto` extensions and is reversible.
 Migrations are the only way schema changes are applied; the API container runs
 `alembic upgrade head` before starting. `0004` adds the lead CRM tables and
 `0005` adds the import pipeline plus student score/year columns and `0006` adds
-duplicate candidates (§8). M2.7 adds no migration and records its API contract in
-D-056. The migration test downgrades to base, upgrades to
+duplicate candidates (§8). M2.7 and M2.8 add no migration; their contracts are
+recorded in D-056/D-057. The migration test downgrades to base, upgrades to
 head, and asserts that every table disappears again, so every revision must
 round-trip.
 
@@ -473,6 +497,13 @@ missing leads, manual creation dedupe/name-only/conflict paths, PATCH field
 updates, lifecycle rejection, assignment permissions, and a separately marked
 `performance` test that bulk-inserts 10,000 leads and checks list P95 against a
 conservative 1.5 s threshold.
+
+Public enquiry tests (`tests/integration/test_public_enquiries.py`) submit the
+real endpoint and assert the Website source, consent rows, missing-checkbox
+behaviour, duplicate flag, CAPTCHA rejection, contact requirement, programme
+validation, appearance in the manager lead list, and the 11th-request 429 with a
+`Retry-After` header. `tests/unit/test_captcha.py` covers the mock verifier and
+factory selection.
 
 Playwright (`frontend/e2e/auth.spec.ts`) drives the real stack: it logs in as
 each seeded role, asserts the role-specific menu, logs out, and confirms a

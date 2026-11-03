@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-03, after `M2.7` (lead CRUD and search APIs)
-- **Current position:** M0 · M1 complete · M2.1–M2.7 complete → **next task M2.8**
+- **Last updated:** 2026-11-03, after `M2.8` (public web enquiry form)
+- **Current position:** M0 · M1 complete · M2.1–M2.8 complete → **next task M2.9**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -26,7 +26,7 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
-| M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.7 complete; next: M2.8 web enquiry form |
+| M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.8 complete; next: M2.9 generic API ingestion |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
@@ -65,19 +65,20 @@ project is operated, and what is still open.
 | M2.5 Lifecycle state machine | ✅ | `services/lifecycle.py`: explicit transition table (linear funnel, any active state to Lost/Disqualified/Unresponsive/Opted Out), actor-aware rules, `TransitionActor` for users/system/agents, terminal reopen to New Enquiry by an Admission Manager, Converted by system or manager (never an agent), one `lifecycle_transition` timeline event per change; matrix and integration tests pass |
 | M2.6 Consent management | ✅ | Append-only consent records; `POST /api/students/{id}/consent` (grant or revoke via `granted`) and `DELETE /api/students/{id}/consent/{channel}/{category}`; `can_send` blocks promotional without an explicit grant, allows transactional until explicitly revoked; revoking the last granted promotional channel closes active leads as Opted Out when `CONSENT_PROMOTIONAL_OPT_OUT_LIFECYCLE=true`; manager scope via `leads.view_all`; unit and integration tests pass |
 | M2.7 Lead CRUD and search APIs | ✅ | `GET /api/leads` with opaque cursor pagination, created/updated sorting, lifecycle/programme/source/campus/counsellor/date filters, and `leads.view_all` vs `leads.view_assigned` scoping; `GET /api/leads/{id}` returns lead, student, consent summary, and an empty assessments list until the assessment model lands; `POST /api/leads` reuses the M2.3 dedupe/merge rules and returns `duplicate_detected`; `PATCH /api/leads/{id}` edits allowed fields only, rejects lifecycle input, and requires `leads.assign` to reassign; performance test seeds 10,000 leads and checks P95 against a conservative 1.5 s threshold |
+| M2.8 Public web enquiry form | ✅ | Unauthenticated `POST /api/public/enquiries` with a Redis fixed-window limit of 10 requests/IP/hour, pluggable CAPTCHA verifier with a deterministic mock, `Website` source creation, the shared M2.3 dedupe/lead path, and `web_form` consent records for the submitted email/WhatsApp channels; duplicate submissions return the existing lead with `duplicate_detected`; submissions appear in the authenticated lead list |
 
-### Verification snapshot (2026-11-03, after M2.7)
+### Verification snapshot (2026-11-03, after M2.8)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy; frontend unchanged)
 make typecheck            pass (mypy strict; frontend tsc unchanged)
-make test                 304 backend tests pass, 4 frontend tests pass
-make test-e2e             not rerun for M2.3–M2.7 (no frontend route changes)
-make migrate              pass (0006 applied; M2.7 adds no migration)
+make test                 315 backend tests pass, 4 frontend tests pass
+make test-e2e             not rerun for M2.3–M2.8 (no frontend route changes)
+make migrate              pass (0006 applied; M2.7/M2.8 add no migration)
 make migrate-test         pass (0006 applied; migration test upgrades/downgrades)
 make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
                           2 campuses, 4 lead sources; idempotent)
-make smoke                not rerun after M2.3/M2.7 (host port 5432 is occupied by the
+make smoke                not rerun after M2.3/M2.8 (host port 5432 is occupied by the
                           local PG 18; Docker changes are storage volume and no new services)
 GET /readyz               200 with PG+Redis up (verified before M2.3)
 GET /healthz              200
@@ -184,6 +185,7 @@ not taken.
 | D-054 | Revoking promotional consent closes every active lead as Opted Out only when no other channel still has a granted promotional record. `CONSENT_PROMOTIONAL_OPT_OUT_LIFECYCLE=false` disables the lifecycle side effect | Matches "opts out completely" and the configurable requirement, while leaving a single-channel unsubscribe with other active consents untouched; system-actor lifecycle transitions write timeline events | Opting out on any single revoke; editing lifecycle without an event |
 | D-055 | Consent endpoints reuse `leads.view_all`; unknown students are 404 and counsellors get 403 | Consent is staff administration over student records, consistent with import/duplicate review; no new permission is needed yet | A new `consent.manage` permission; allowing counsellors to change consent |
 | D-056 | M2.7 keeps one lead service for manual creation: it applies the same `decide_match` rules as import, persists name-only candidates, returns an existing lead with HTTP 200 + `duplicate_detected` instead of creating a second one, and requires at least one contact key. `GET /api/leads` uses an opaque base64 cursor containing the sort value and lead id; `leads.view_all` sees everything and `leads.view_assigned` is filtered to the caller. Detail denial is 404, lifecycle fields are rejected by PATCH (422), and assignment requires `leads.assign` | Manual entry must not bypass the import invariants; a cursor avoids offset drift while new leads arrive; scope denial must not reveal existence; keeping lifecycle in M2.5 prevents two write paths | Duplicating import logic in the router; page/offset pagination; allowing lifecycle through PATCH |
+| D-057 | `POST /api/public/enquiries` is unauthenticated but runs through a Redis fixed-window limiter before CAPTCHA verification and lead creation. CAPTCHA sits behind a `CaptchaVerifier` protocol with a deterministic mock; rate limiting fails closed with 503 if Redis is unavailable. Public leads always use the `Website` source, reuse `create_or_get_lead`, and record promotional/transactional consent only for channels actually supplied, with `source=method=web_form`. The response is a minimal acknowledgement and never echoes PII | Keeps the public surface from bypassing dedupe or consent, limits abuse before touching the database, and avoids revealing whether an enquiry matched an existing student; mocks keep tests hermetic | Trusting client-supplied source; requiring consent to create the lead; accepting unbounded unauthenticated writes; calling a vendor SDK from the router |
 
 ## 4. Architecture in one paragraph
 
@@ -289,6 +291,8 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-010 | ~~M2.3 rejects a row whose email and phone point at different existing students without a review record~~ **Resolved in M2.4:** conflicting contacts now reject the row and create a pending `duplicate_candidates` entry; name-only matches create candidates without auto-merging | Done; keep the stable `conflicting_contact` reason |
 | R-011 | M2.5 ships the lifecycle service but no HTTP endpoint; M2.7 rejects `lifecycle_status` in `PATCH /api/leads/{id}` | Add a dedicated transition endpoint (with actor/reason and permission checks) before the frontend needs manual transitions |
 | R-012 | `GET /api/leads/{id}` returns `assessments: []` because no assessment table/model exists yet, although the M2.7 plan names latest assessments | Wire the query when M6.1 adds assessments; the response shape already reserves the field |
+| R-013 | The public enquiry CAPTCHA is a mock verifier. `USE_MOCK_CAPTCHA=false` currently has no real adapter and fails closed with a 500 at the dependency | Add a Turnstile/reCAPTCHA adapter before exposing the form publicly; the provider interface and mock already exist |
+| R-014 | Public enquiry rate limiting keys on `request.client.host`; behind a reverse proxy every request may share the proxy IP and exhaust the allowance | Decide trusted-proxy/forwarded-header handling before deployment; do not trust `X-Forwarded-For` blindly |
 
 ## 8. Open implementation questions
 
@@ -349,3 +353,4 @@ Checklist for every task commit:
 | 2026-11-02 | M2.5: explicit lifecycle transition table, actor-aware rules (agents cannot convert), manager-only terminal reopen, one timeline event per transition; 290 backend tests and 4 frontend tests pass. |
 | 2026-11-02 | M2.6: append-only consent API, promotional/transactional send checks, configurable promotional opt-out closing active leads, and tests; 297 backend tests and 4 frontend tests pass. |
 | 2026-11-03 | M2.7: cursor-paginated scoped lead list with filters and sorting, lead detail with student/consent summary, manual creation through the shared dedupe path, lifecycle-free PATCH, assignment checks, and a 10,000-lead P95 performance test; 304 backend tests and 4 frontend tests pass. |
+| 2026-11-03 | M2.8: public enquiry endpoint with Redis per-IP rate limiting, mock CAPTCHA verifier, Website source, shared dedupe lead creation, web-form consent records, and duplicate detection; 315 backend tests and 4 frontend tests pass. |
