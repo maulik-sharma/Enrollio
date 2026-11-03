@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-03, after `M3.1` (provider interfaces and mock implementations)
-- **Current position:** M0 · M1 · M2 complete · M3.1 complete → **next task M3.2**
+- **Last updated:** 2026-11-03, after `M3.2` (message and conversation data model)
+- **Current position:** M0 · M1 · M2 complete · M3.1–M3.2 complete → **next task M3.3**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -27,7 +27,7 @@ project is operated, and what is still open.
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
 | M2 Lead CRM and ingestion | ✅ Complete | M2.1–M2.10 complete; lead management screens ship with import, list, detail, and manual entry |
-| M3 Communication and campaigns | 🚧 In progress | M3.1 complete; next M3.2 message and conversation model |
+| M3 Communication and campaigns | 🚧 In progress | M3.1–M3.2 complete; next M3.3 single messaging entry point |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
 | M6 Lead/conversation intelligence | ⬜ Not started | |
@@ -74,18 +74,19 @@ project is operated, and what is still open.
 | Task | Status | What exists |
 | --- | --- | --- |
 | M3.1 Provider interfaces and mocks | ✅ | `EmailProvider` protocol (`send`, `parse_inbound`, `verify_webhook`) and provider-neutral `EmailMessage`/`InboundMessage`; DB-backed `MockEmailProvider` (migration `0008` creates `mock_email_messages`) with outbound sends, inbound-reply capture, and delivery-event helpers; SendGrid v3 adapter over `httpx` with injected-client contract tests and Basic-auth Inbound Parse verification; factory defaults to the mock and fails closed for SES; WhatsApp interface plus a stub that raises `WhatsAppNotImplemented` |
+| M3.2 Message and conversation data model | ✅ | Migration `0009` adds `conversations` (one per lead/channel, open/closed, `last_message_at`), `messages` (direction, channel, text/HTML, provider id unique per channel, status, intent, nullable `created_by_agent_action_id`), and `message_events` (event type, globally unique `provider_event_id`, `occurred_at`); lead → conversation → message → event deletes cascade, and a duplicate provider event is rejected without applying a second status change |
 
-### Verification snapshot (2026-11-03, after M3.1)
+### Verification snapshot (2026-11-03, after M3.2)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy; ESLint)
 make typecheck            pass (mypy strict; frontend tsc --noEmit)
-make test                 347 backend tests pass (1 opt-in live SendGrid test skipped),
+make test                 352 backend tests pass (1 opt-in live SendGrid test skipped),
                           8 frontend tests pass
 make test-e2e             6 Playwright tests pass locally with the API on :8000 and
-                          IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3.1 has no UI change)
-make migrate              pass (0008 applied)
-make migrate-test         pass (0008 applied; migration test upgrades/downgrades)
+                          IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3 has no UI change)
+make migrate              pass (0009 applied)
+make migrate-test         pass (0009 applied; migration test upgrades/downgrades)
 make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
                           2 campuses, 4 lead sources; idempotent)
 make smoke                not rerun after M2.3/M2.9 (host port 5432 is occupied by the
@@ -204,6 +205,7 @@ not taken.
 | D-063 | Email uses one provider-neutral contract in `app/integrations/email/base.py`: `send` returns the provider message id, `parse_inbound` returns an `InboundMessage`, and `verify_webhook` returns a boolean. The mock is selected whenever `USE_MOCK_EMAIL` is true, regardless of `EMAIL_PROVIDER`, and stores sends/replies in `mock_email_messages` (migration `0008`) with test helpers for inbound replies and delivery events | Downstream services must never see a vendor payload or SDK; the mock needs durable, inspectable state for M3.2–M3.5 tests, and D-004's mock flags stay authoritative | In-memory-only mock; provider-specific message classes leaking into services; calling a vendor SDK directly |
 | D-064 | The first real email adapter is SendGrid: `httpx` posts the v3 payload, the `X-Message-Id` header is the provider id, non-2xx/transport failures raise `EmailDeliveryError`, and Inbound Parse webhooks require HTTP Basic auth `sendgrid:<EMAIL_WEBHOOK_SECRET>`. `AsyncClient` can be injected so contract tests assert the request offline. SES remains enumerated but raises `EmailNotConfigured` | SendGrid needs one bearer key that the existing settings already model, and an injected client lets CI verify the wire contract without credentials or real mail. A future SES adapter can implement the same protocol without touching callers | Adding boto3 now; committing to SES without credentials; accepting unsigned webhooks |
 | D-065 | M3 defines the WhatsApp interface, message dataclasses, and a stub provider whose methods raise `WhatsAppNotImplemented`; no factory selects a Cloud API adapter until Phase 2 | Keeps downstream signatures stable without pretending an untested vendor integration works; the task explicitly marks WhatsApp as a stub | Implementing Cloud API early; omitting the interface |
+| D-066 | M3.2 stores messaging state in three tables: `conversations` is unique per `(lead_id, channel)` and carries `last_message_at`; `messages` denormalises `channel`, scopes `provider_message_id` uniqueness to the channel, and keeps `created_by_agent_action_id` as a plain UUID; `message_events` holds an append-only event log with a globally unique `provider_event_id`. Deletes cascade lead → conversation → message → event, and webhook handlers must insert the event before applying a status change so a replayed event fails the unique constraint | One thread per lead/channel makes inbound and outbound paths converge without a race; provider ids are only unique inside a provider namespace; the event uniqueness is the idempotency boundary, and ordering the insert first prevents a duplicate payload from mutating message state | A second thread per lead/channel; global provider-message uniqueness that blocks cross-channel ids; updating status before recording the event; storing the agent action as a hard FK before the agent-run table exists |
 
 ## 4. Architecture in one paragraph
 
@@ -387,3 +389,4 @@ Checklist for every task commit:
 | 2026-11-03 | M2.9: migration `0007` adds source-scoped hashed API keys; admin key provisioning, API-key/Bearer authentication, import-equivalent batch validation and dedupe, per-record results and savepoint isolation, 1,000-record limit, and an HMAC webhook signature helper; 323 backend tests and 4 frontend tests pass. |
 | 2026-11-03 | M2.10: lead list with escaped search/filters/cursor paging, my-leads scoping, validated manual entry, import wizard with saved/guessed mapping and error CSV, lead detail with permission-filtered lifecycle and consent panel; backend adds catalogues, lifecycle transition endpoint, enriched names, and `allowed_transitions`; 328 backend tests, 8 frontend tests, and 6 Playwright flows pass. **Milestone M2 complete.** |
 | 2026-11-03 | M3.1: provider-neutral email contract, DB-backed mock with inbound/delivery helpers (migration `0008`), SendGrid v3 adapter over injected `httpx` with Basic-auth inbound verification, mock-first factory, WhatsApp interface and stub, contract/factory tests; 347 backend tests pass with 1 opt-in live SendGrid test skipped. |
+| 2026-11-03 | M3.2: migration `0009` adds `conversations`, `messages`, and `message_events` with one thread per lead/channel, channel-scoped provider message ids, globally unique provider event ids, and lead → conversation → message → event cascades; integration tests prove conversation defaults/uniqueness, provider message uniqueness, duplicate-event rejection without a second status change, and SQL/ORM cascade deletion; 352 backend tests pass with 1 opt-in live SendGrid test skipped. |

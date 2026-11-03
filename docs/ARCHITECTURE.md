@@ -526,6 +526,32 @@ WhatsApp is interface-only in M3: `WhatsAppProvider`, `WhatsAppMessage`,
 `InboundWhatsAppMessage`, and a `StubWhatsAppProvider` whose methods raise
 `WhatsAppNotImplemented`. The Cloud API adapter belongs to Phase 2.
 
+### Messaging schema (M3.2)
+
+Migration `0009` adds the conversation/message/event tables used by M3.3 onward:
+
+- `conversations` — `lead_id`, `channel`, `status` (`open`/`closed`), and
+  `last_message_at`. `(lead_id, channel)` is unique so inbound and outbound
+  paths cannot create two threads for the same lead, and an index on
+  `last_message_at` supports inbox ordering.
+- `messages` — `conversation_id`, `direction`, `channel`, `content_text`,
+  `content_html`, nullable `provider_message_id`, `status`, `intent`, and a
+  nullable `created_by_agent_action_id`. Provider ids are unique per channel
+  (`UNIQUE (channel, provider_message_id)`), and NULL provider ids are allowed
+  for drafts or failed sends. The agent action id is deliberately a plain UUID
+  until the agent-run table exists.
+- `message_events` — `message_id`, `event_type`, a globally unique
+  `provider_event_id`, `occurred_at`, and `created_at`. Events are append-only.
+
+`leads.id → conversations.lead_id`, `conversations.id → messages.conversation_id`,
+and `messages.id → message_events.message_id` all use `ON DELETE CASCADE`, so
+removing a lead removes its communication history. The unique provider event id
+is the idempotency boundary (D-066): webhook handlers insert the event before
+applying a status change, so a replayed delivery is rejected by the database
+instead of updating the message twice. Inbound replies, status transitions, and
+timeline emissions are implemented in M3.3 onward; M3.2 ships the schema and
+its database-level guarantees.
+
 ## 10. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -533,12 +559,12 @@ enables the `vector`, `btree_gist`, and `pgcrypto` extensions and is reversible.
 Migrations are the only way schema changes are applied; the API container runs
 `alembic upgrade head` before starting. `0004` adds the lead CRM tables and
 `0005` adds the import pipeline plus student score/year columns and `0006` adds
-duplicate candidates; `0007` adds source-scoped hashed API keys (§8); and `0008`
-adds the mock email provider's `mock_email_messages` table (§9). M2.7, M2.8,
-and M2.10 add no migration; their contracts are recorded in D-056/D-057/D-059,
-and M2.9 is recorded in D-058. The migration test downgrades to base, upgrades
-to head, and asserts that every table disappears again, so every revision must
-round-trip.
+duplicate candidates; `0007` adds source-scoped hashed API keys (§8); `0008`
+adds the mock email provider's `mock_email_messages` table (§9); and `0009` adds
+the messaging schema (§9). M2.7, M2.8, and M2.10 add no migration; their
+contracts are recorded in D-056/D-057/D-059, and M2.9 is recorded in D-058. The
+migration test downgrades to base, upgrades to head, and asserts that every
+table disappears again, so every revision must round-trip.
 
 ## 11. Testing
 
@@ -631,6 +657,12 @@ the unknown-message error. SendGrid-only tests inspect the v3 payload/auth heade
 and a non-2xx failure; a live send is skipped unless `EMAIL_API_KEY` and
 `EMAIL_CONTRACT_TO` are set. Factory/default and WhatsApp stub tests live in
 `tests/unit/test_email_providers.py`.
+
+Messaging model tests (`tests/integration/test_message_model.py`) prove the
+M3.2 guarantees against PostgreSQL: conversation defaults and the unique
+`(lead_id, channel)` constraint, provider-message uniqueness per channel,
+rejection of a duplicate `provider_event_id` without a second status change,
+and cascade deletion from lead through conversation, message, and event.
 
 Frontend unit tests (`frontend/tests/navigation.test.tsx` and
 `import-mapping.test.tsx`) cover the permission-filtered menu and prove the

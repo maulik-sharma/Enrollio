@@ -60,6 +60,57 @@ class EmailDirection(StrEnum):
     INBOUND = "inbound"
 
 
+class MessageChannel(StrEnum):
+    """Channels a conversation or message can use."""
+
+    EMAIL = "email"
+    WHATSAPP = "whatsapp"
+    SMS = "sms"
+
+
+class MessageDirection(StrEnum):
+    """Whether a message left the system or arrived from a provider."""
+
+    OUTBOUND = "outbound"
+    INBOUND = "inbound"
+
+
+class MessageStatus(StrEnum):
+    """Delivery state of one message."""
+
+    QUEUED = "queued"
+    SENT = "sent"
+    RECEIVED = "received"
+    DELIVERED = "delivered"
+    OPENED = "opened"
+    CLICKED = "clicked"
+    REPLIED = "replied"
+    BOUNCED = "bounced"
+    COMPLAINED = "complained"
+    FAILED = "failed"
+
+
+class MessageEventType(StrEnum):
+    """Provider or system event that changes a message's state."""
+
+    SENT = "sent"
+    RECEIVED = "received"
+    DELIVERED = "delivered"
+    OPENED = "opened"
+    CLICKED = "clicked"
+    REPLIED = "replied"
+    BOUNCED = "bounced"
+    COMPLAINED = "complained"
+    FAILED = "failed"
+
+
+class ConversationStatus(StrEnum):
+    """Whether a conversation is still active."""
+
+    OPEN = "open"
+    CLOSED = "closed"
+
+
 class ImportJobStatus(StrEnum):
     """Lifecycle of one uploaded file."""
 
