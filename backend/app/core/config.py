@@ -127,6 +127,9 @@ class Settings(BaseSettings):
     ENQUIRY_RATE_LIMIT_WINDOW_SECONDS: int = 3600
     USE_MOCK_CAPTCHA: bool = True
 
+    # Maximum records accepted in one partner API ingestion batch.
+    API_INGESTION_MAX_RECORDS: int = 1000
+
     # Development-only demo accounts. Never enabled in production.
     # `.env.example` turns this on for local development.
     SEED_DEMO_USERS: bool = False

@@ -73,6 +73,7 @@ class LeadCreation:
     lead: Lead
     student: Student
     duplicate_detected: bool
+    student_was_existing: bool
 
 
 async def list_leads(
@@ -167,6 +168,7 @@ async def create_or_get_lead(
         raise ConflictingContacts(decision.student_id, decision.conflicting_student_id)
 
     existing = by_email or by_phone
+    student_was_existing = existing is not None
     if existing is None:
         student = Student(
             first_name=first_name,
@@ -208,7 +210,12 @@ async def create_or_get_lead(
         admission_cycle=admission_cycle,
     )
     if lead is not None:
-        return LeadCreation(lead=lead, student=student, duplicate_detected=True)
+        return LeadCreation(
+            lead=lead,
+            student=student,
+            duplicate_detected=True,
+            student_was_existing=student_was_existing,
+        )
 
     lead = Lead(
         student_id=student.id,
@@ -225,6 +232,7 @@ async def create_or_get_lead(
         lead=lead,
         student=student,
         duplicate_detected=False,
+        student_was_existing=student_was_existing,
     )
 
 

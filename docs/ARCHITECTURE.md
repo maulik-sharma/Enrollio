@@ -1,9 +1,9 @@
 # Architecture
 
-> Status: Milestones M0, M1, and M2.1–M2.8 (foundation, identity, lead CRM
+> Status: Milestones M0, M1, and M2.1–M2.9 (foundation, identity, lead CRM
 > schema, normalisation, CSV/XLSX import, duplicate review, lifecycle, consent,
-> lead CRUD/search, and the public web enquiry form). This document is updated as
-> milestones land.
+> lead CRUD/search, the public web enquiry form, and partner API ingestion). This
+> document is updated as milestones land.
 
 ## 1. Repository layout
 
@@ -425,6 +425,33 @@ in `GET /api/leads` to a manager. Programmes can be selected by id, name, or cod
 campuses by id or name. The optional message is accepted but not persisted
 because no enquiry-message column exists yet.
 
+### Partner API ingestion (M2.9)
+
+`api_keys` (migration `0007`) stores a random key's SHA-256 hash and a short
+prefix, never the plaintext. A key belongs to exactly one `lead_sources` row and
+may have an expiry and an active flag. An admin with `integrations.manage` calls
+`POST /api/integrations/api-keys` with a source id/name and receives the
+plaintext key once. `POST /api/integrations/leads` accepts that key through
+`X-API-Key` or `Authorization: Bearer`, rejects missing/invalid/expired keys with
+401, and always uses the key's source. A body `source` is ignored so a partner
+cannot write into another channel.
+
+The request body is a JSON array of canonical lead objects (a `{ "leads": [...] }`
+envelope is also accepted). Every record runs through the M2.3 import parser, so
+email/phone/name/score/year normalisation and catalogue names/ids behave exactly
+like CSV import. The ingest service commits each record in its own savepoint;
+an invalid record, unknown programme/campus, conflicting contacts, or concurrent
+contact insert is reported in that record's result without aborting the batch.
+The shared `create_or_get_lead` path supplies duplicate and name-only handling,
+and conflicting contacts create a pending `conflicting_contact` candidate.
+
+`created` means a new student and lead; `merged` means a known student gained a
+lead; `duplicate` means the same student/programme/cycle already existed;
+`rejected` includes a stable reason. `API_INGESTION_MAX_RECORDS` defaults to 1,000
+and is checked before any write (413). `core/webhooks.py` provides
+`sign_webhook`/`verify_webhook_signature` using `t=<unix>,v1=<hmac-sha256>` with
+a five-minute default tolerance; no provider webhook route uses it yet.
+
 ## 9. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -432,10 +459,10 @@ enables the `vector`, `btree_gist`, and `pgcrypto` extensions and is reversible.
 Migrations are the only way schema changes are applied; the API container runs
 `alembic upgrade head` before starting. `0004` adds the lead CRM tables and
 `0005` adds the import pipeline plus student score/year columns and `0006` adds
-duplicate candidates (§8). M2.7 and M2.8 add no migration; their contracts are
-recorded in D-056/D-057. The migration test downgrades to base, upgrades to
-head, and asserts that every table disappears again, so every revision must
-round-trip.
+duplicate candidates; `0007` adds source-scoped hashed API keys (§8). M2.7 and
+M2.8 add no migration; their contracts are recorded in D-056/D-057, and M2.9 is
+recorded in D-058. The migration test downgrades to base, upgrades to head, and
+asserts that every table disappears again, so every revision must round-trip.
 
 ## 10. Testing
 
@@ -504,6 +531,14 @@ behaviour, duplicate flag, CAPTCHA rejection, contact requirement, programme
 validation, appearance in the manager lead list, and the 11th-request 429 with a
 `Retry-After` header. `tests/unit/test_captcha.py` covers the mock verifier and
 factory selection.
+
+Partner ingestion tests (`tests/integration/test_api_ingestion.py`) provision a
+key as admin, reject manager/anon creation, assert the key's source overrides a
+body source, report every per-record outcome in one batch, isolate invalid
+records, create conflicting-contact candidates, verify missing/invalid/expired
+keys, enforce the 1,000-record 413 before writes, accept the envelope form, and
+push 500 leads successfully. `tests/unit/test_webhooks.py` covers valid HMAC
+signatures, tampering, wrong secrets, stale timestamps, and malformed headers.
 
 Playwright (`frontend/e2e/auth.spec.ts`) drives the real stack: it logs in as
 each seeded role, asserts the role-specific menu, logs out, and confirms a
