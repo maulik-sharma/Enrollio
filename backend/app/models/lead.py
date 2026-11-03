@@ -15,6 +15,7 @@ from app.models.types import enum_column
 
 if TYPE_CHECKING:
     from app.models.campus import Campus
+    from app.models.conversation import Conversation
     from app.models.import_job import ImportJob
     from app.models.lead_source import LeadSource
     from app.models.programme import Programme
@@ -84,3 +85,7 @@ class Lead(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     assigned_counsellor: Mapped[User | None] = relationship()
     import_job: Mapped[ImportJob | None] = relationship(back_populates="leads")
     timeline_events: Mapped[list[TimelineEvent]] = relationship(back_populates="lead")
+    conversations: Mapped[list[Conversation]] = relationship(
+        back_populates="lead",
+        cascade="all, delete-orphan",
+    )

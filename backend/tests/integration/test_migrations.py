@@ -36,6 +36,10 @@ EXPECTED_TABLES = {
     "import_row_results",
     "duplicate_candidates",
     "api_keys",
+    "mock_email_messages",
+    "conversations",
+    "messages",
+    "message_events",
 }
 
 
