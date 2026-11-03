@@ -25,6 +25,18 @@ class StudentRead(BaseModel):
     graduation_year: int | None
 
 
+class StudentSummaryRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    first_name: str
+    last_name: str
+    email_normalised: str | None
+    phone_e164: str | None
+    academic_score: Decimal | None
+    graduation_year: int | None
+
+
 class LeadRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,8 +57,18 @@ class LeadCreateRead(LeadRead):
     duplicate_detected: bool
 
 
+class LeadListItemRead(LeadRead):
+    """A list row enriched with the names the lead table displays."""
+
+    student: StudentSummaryRead
+    programme_name: str | None
+    campus_name: str | None
+    source_name: str | None
+    assigned_counsellor_name: str | None
+
+
 class LeadListRead(BaseModel):
-    items: list[LeadRead]
+    items: list[LeadListItemRead]
     next_cursor: str | None
 
 
@@ -55,6 +77,16 @@ class LeadDetailRead(BaseModel):
     student: StudentRead
     consent_summary: list[ConsentRecordRead]
     assessments: list[dict[str, object]] = Field(default_factory=list)
+    allowed_transitions: list[LifecycleStatus] = Field(default_factory=list)
+    programme_name: str | None = None
+    campus_name: str | None = None
+    source_name: str | None = None
+    assigned_counsellor_name: str | None = None
+
+
+class LeadLifecycleRequest(BaseModel):
+    to_state: LifecycleStatus
+    reason: str = Field(min_length=1, max_length=500)
 
 
 class LeadCreateRequest(BaseModel):
