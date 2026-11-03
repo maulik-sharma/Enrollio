@@ -12,6 +12,28 @@ from app.models.lead_source import LeadSource
 from app.models.programme import Programme
 
 
+async def list_programmes(session: AsyncSession) -> list[Programme]:
+    """Return active programmes in name order."""
+    result = await session.execute(
+        select(Programme).where(Programme.is_active.is_(True)).order_by(Programme.name)
+    )
+    return list(result.scalars())
+
+
+async def list_campuses(session: AsyncSession) -> list[Campus]:
+    """Return active campuses in name order."""
+    result = await session.execute(
+        select(Campus).where(Campus.is_active.is_(True)).order_by(Campus.name)
+    )
+    return list(result.scalars())
+
+
+async def list_sources(session: AsyncSession) -> list[LeadSource]:
+    """Return lead sources in name order."""
+    result = await session.execute(select(LeadSource).order_by(LeadSource.name))
+    return list(result.scalars())
+
+
 async def get_programme(session: AsyncSession, value: str) -> Programme | None:
     """Match an active programme by case-insensitive name or code."""
     folded = value.casefold()

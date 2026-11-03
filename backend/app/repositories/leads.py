@@ -6,16 +6,28 @@ import uuid
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.domain import LifecycleStatus
 from app.models.lead import Lead
+from app.models.student import Student
 
 
 async def get(session: AsyncSession, lead_id: uuid.UUID) -> Lead | None:
-    """Return a lead by primary key."""
-    return await session.get(Lead, lead_id)
+    """Return a lead by primary key with display relationships loaded."""
+    return await session.scalar(
+        select(Lead)
+        .options(
+            selectinload(Lead.student),
+            selectinload(Lead.programme),
+            selectinload(Lead.campus),
+            selectinload(Lead.source),
+            selectinload(Lead.assigned_counsellor),
+        )
+        .where(Lead.id == lead_id)
+    )
 
 
 async def find_for_enquiry(
@@ -54,6 +66,7 @@ async def list_page(
     session: AsyncSession,
     *,
     scoped_counsellor_id: uuid.UUID | None,
+    search: str | None = None,
     lifecycle_status: LifecycleStatus | None = None,
     programme_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
@@ -67,10 +80,29 @@ async def list_page(
     limit: int = 25,
 ) -> list[Lead]:
     """Return a stable page of leads, scoped and filtered."""
-    statement = select(Lead)
+    statement = select(Lead).options(
+        selectinload(Lead.student),
+        selectinload(Lead.programme),
+        selectinload(Lead.campus),
+        selectinload(Lead.source),
+        selectinload(Lead.assigned_counsellor),
+    )
 
     if scoped_counsellor_id is not None:
         statement = statement.where(Lead.assigned_counsellor_id == scoped_counsellor_id)
+    if search is not None and search.strip():
+        pattern = _like_pattern(search)
+        statement = statement.join(Student, Student.id == Lead.student_id).where(
+            or_(
+                Student.first_name.ilike(pattern, escape="\\"),
+                Student.last_name.ilike(pattern, escape="\\"),
+                Student.email_normalised.ilike(pattern, escape="\\"),
+                Student.phone_e164.ilike(pattern, escape="\\"),
+                func.concat_ws(" ", Student.first_name, Student.last_name).ilike(
+                    pattern, escape="\\"
+                ),
+            )
+        )
     if lifecycle_status is not None:
         statement = statement.where(Lead.lifecycle_status == lifecycle_status)
     if programme_id is not None:
@@ -102,3 +134,9 @@ async def list_page(
     tie = Lead.id.desc() if descending else Lead.id.asc()
     result = await session.execute(statement.order_by(order, tie).limit(limit))
     return list(result.scalars())
+
+
+def _like_pattern(value: str) -> str:
+    """Build a contains pattern with LIKE metacharacters escaped."""
+    escaped = value.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return f"%{escaped}%"

@@ -26,7 +26,14 @@ export class ApiError extends Error {
 
 async function send(path: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (init.body !== undefined && !headers.has("Content-Type")) {
+  const isFormData =
+    typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (
+    init.body !== undefined &&
+    !isFormData &&
+    !(init.body instanceof URLSearchParams) &&
+    !headers.has("Content-Type")
+  ) {
     headers.set("Content-Type", "application/json");
   }
   if (accessToken !== null) {
@@ -76,6 +83,29 @@ export async function apiRequest(
   }
   response = await send(path, init);
   return response;
+}
+
+/** Send a request and decode a JSON response, raising ``ApiError`` on failure. */
+export async function apiJson<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const response = await apiRequest(path, init);
+  if (!response.ok) {
+    throw await responseError(response);
+  }
+  return (await response.json()) as T;
+}
+
+/** Send a request and discard the body. */
+export async function apiVoid(
+  path: string,
+  init: RequestInit = {},
+): Promise<void> {
+  const response = await apiRequest(path, init);
+  if (!response.ok) {
+    throw await responseError(response);
+  }
 }
 
 /** Rotate the refresh cookie into a new in-memory access token. */

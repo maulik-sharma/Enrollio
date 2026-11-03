@@ -46,14 +46,18 @@ from app.schemas.leads import (
     LeadCreateRead,
     LeadCreateRequest,
     LeadDetailRead,
+    LeadLifecycleRequest,
+    LeadListItemRead,
     LeadListRead,
     LeadRead,
     LeadUpdateRequest,
     StudentRead,
+    StudentSummaryRead,
 )
 from app.services import consent as consent_service
 from app.services import imports as imports_service
 from app.services import leads as leads_service
+from app.services import lifecycle as lifecycle_service
 from app.services.import_parsing import ImportFileError
 from app.services.imports import ImportDispatchError
 
@@ -108,6 +112,7 @@ async def list_leads(
         int, Query(ge=1, le=leads_service.MAX_LIST_LIMIT)
     ] = leads_service.DEFAULT_LIST_LIMIT,
     sort: Literal["created_at", "-created_at", "updated_at", "-updated_at"] = "created_at",
+    search: Annotated[str | None, Query(max_length=100)] = None,
     lifecycle_status: LifecycleStatus | None = None,
     programme_id: uuid.UUID | None = None,
     source_id: uuid.UUID | None = None,
@@ -124,6 +129,7 @@ async def list_leads(
             cursor=cursor,
             limit=limit,
             sort=sort,
+            search=search,
             lifecycle_status=lifecycle_status,
             programme_id=programme_id,
             source_id=source_id,
@@ -138,7 +144,7 @@ async def list_leads(
             detail="invalid_cursor",
         ) from exc
     return LeadListRead(
-        items=[LeadRead.model_validate(lead) for lead in page.items],
+        items=[_list_item(lead) for lead in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -248,12 +254,61 @@ async def get_lead(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
 
     records = await consent_service.consent_summary(session, student_id=student.id)
+    actor = lifecycle_service.TransitionActor.from_user(user)
     return LeadDetailRead(
         lead=LeadRead.model_validate(lead),
         student=StudentRead.model_validate(student),
         consent_summary=[ConsentRecordRead.model_validate(record) for record in records],
         assessments=[],
+        allowed_transitions=lifecycle_service.ordered_allowed_transitions(
+            lead.lifecycle_status, actor=actor
+        ),
+        programme_name=lead.programme.name if lead.programme is not None else None,
+        campus_name=lead.campus.name if lead.campus is not None else None,
+        source_name=lead.source.name if lead.source is not None else None,
+        assigned_counsellor_name=(
+            lead.assigned_counsellor.full_name if lead.assigned_counsellor is not None else None
+        ),
     )
+
+
+@router.post("/{lead_id}/lifecycle", response_model=LeadRead, dependencies=[LeadReadDependency])
+async def transition_lead(
+    lead_id: uuid.UUID,
+    payload: LeadLifecycleRequest,
+    session: SessionDep,
+    user: CurrentUserDep,
+) -> LeadRead:
+    """Apply an allowed lifecycle transition for the current actor."""
+    try:
+        lead, _ = await leads_service.get_lead(session, lead_id)
+    except leads_service.LeadNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found") from exc
+    if not _can_access(user, lead):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found")
+
+    try:
+        updated = await lifecycle_service.transition(
+            session,
+            lead_id,
+            payload.to_state,
+            user,
+            payload.reason,
+        )
+    except lifecycle_service.LeadNotFound as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="not_found") from exc
+    except lifecycle_service.TransitionNotPermitted as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="transition_not_permitted",
+        ) from exc
+    except lifecycle_service.InvalidLifecycleTransition as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="invalid_transition",
+        ) from exc
+
+    return LeadRead.model_validate(updated)
 
 
 @router.patch("/{lead_id}", response_model=LeadRead, dependencies=[LeadReadDependency])
@@ -303,6 +358,20 @@ async def update_lead(
             detail=exc.code,
         ) from exc
     return LeadRead.model_validate(lead)
+
+
+def _list_item(lead: Lead) -> LeadListItemRead:
+    """Flatten a lead's display names for the list table."""
+    return LeadListItemRead(
+        **LeadRead.model_validate(lead).model_dump(),
+        student=StudentSummaryRead.model_validate(lead.student),
+        programme_name=lead.programme.name if lead.programme is not None else None,
+        campus_name=lead.campus.name if lead.campus is not None else None,
+        source_name=lead.source.name if lead.source is not None else None,
+        assigned_counsellor_name=(
+            lead.assigned_counsellor.full_name if lead.assigned_counsellor is not None else None
+        ),
+    )
 
 
 def _can_access(user: User, lead: Lead) -> bool:

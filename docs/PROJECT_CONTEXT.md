@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-03, after `M2.9` (generic API ingestion endpoint)
-- **Current position:** M0 · M1 complete · M2.1–M2.9 complete → **next task M2.10**
+- **Last updated:** 2026-11-03, after `M2.10` (frontend lead management)
+- **Current position:** M0 · M1 complete · M2 complete → **next task M3.1**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -26,7 +26,7 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
-| M2 Lead CRM and ingestion | 🚧 In progress | M2.1–M2.9 complete; next: M2.10 frontend lead management |
+| M2 Lead CRM and ingestion | ✅ Complete | M2.1–M2.10 complete; lead management screens ship with import, list, detail, and manual entry |
 | M3 Communication and campaigns | ⬜ Not started | |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
@@ -67,14 +67,16 @@ project is operated, and what is still open.
 | M2.7 Lead CRUD and search APIs | ✅ | `GET /api/leads` with opaque cursor pagination, created/updated sorting, lifecycle/programme/source/campus/counsellor/date filters, and `leads.view_all` vs `leads.view_assigned` scoping; `GET /api/leads/{id}` returns lead, student, consent summary, and an empty assessments list until the assessment model lands; `POST /api/leads` reuses the M2.3 dedupe/merge rules and returns `duplicate_detected`; `PATCH /api/leads/{id}` edits allowed fields only, rejects lifecycle input, and requires `leads.assign` to reassign; performance test seeds 10,000 leads and checks P95 against a conservative 1.5 s threshold |
 | M2.8 Public web enquiry form | ✅ | Unauthenticated `POST /api/public/enquiries` with a Redis fixed-window limit of 10 requests/IP/hour, pluggable CAPTCHA verifier with a deterministic mock, `Website` source creation, the shared M2.3 dedupe/lead path, and `web_form` consent records for the submitted email/WhatsApp channels; duplicate submissions return the existing lead with `duplicate_detected`; submissions appear in the authenticated lead list |
 | M2.9 Generic API ingestion endpoint | ✅ | Migration `0007` adds source-scoped hashed API keys; admin `POST /api/integrations/api-keys` returns plaintext once; `POST /api/integrations/leads` accepts `X-API-Key` or Bearer auth, ignores body source, validates through the import parser, enforces 1,000 records/413, isolates each record in a savepoint, returns `created`/`merged`/`duplicate`/`rejected` per record, and reuses the shared dedupe/name-only/conflict rules; HMAC-SHA256 webhook helper with a timestamp tolerance |
+| M2.10 Frontend lead management | ✅ | `/sections/leads` (search, lifecycle/programme/campus/source filters, cursor pagination), `/sections/my-leads` (assigned scope), `/sections/leads/new` (validated manual form with duplicate notice), `/sections/leads/import` (upload → saved/guessed mapping → preview → inline results → error CSV), and `/sections/leads/[id]` (student/lead details, permission-filtered lifecycle control, consent panel, timeline empty state); backend adds escaped `?search=`, `GET /api/catalogues`, `POST /api/leads/{id}/lifecycle`, enriched list/detail names, and `allowed_transitions`. Vitest mapping test, Playwright import/counts and counsellor-scope tests pass |
 
-### Verification snapshot (2026-11-03, after M2.9)
+### Verification snapshot (2026-11-03, after M2.10)
 
 ```text
-make lint                 pass (ruff, ruff format --check, mypy; frontend unchanged)
-make typecheck            pass (mypy strict; frontend tsc unchanged)
-make test                 323 backend tests pass, 4 frontend tests pass
-make test-e2e             not rerun for M2.3–M2.8 (no frontend route changes)
+make lint                 pass (ruff, ruff format --check, mypy; ESLint)
+make typecheck            pass (mypy strict; frontend tsc --noEmit)
+make test                 328 backend tests pass, 8 frontend tests pass
+make test-e2e             6 Playwright tests pass locally with the API on :8000 and
+                          IMPORT_PROCESSING_MODE=inline (4 auth + import counts + counsellor scope)
 make migrate              pass (0007 applied)
 make migrate-test         pass (0007 applied; migration test upgrades/downgrades)
 make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
@@ -188,6 +190,10 @@ not taken.
 | D-056 | M2.7 keeps one lead service for manual creation: it applies the same `decide_match` rules as import, persists name-only candidates, returns an existing lead with HTTP 200 + `duplicate_detected` instead of creating a second one, and requires at least one contact key. `GET /api/leads` uses an opaque base64 cursor containing the sort value and lead id; `leads.view_all` sees everything and `leads.view_assigned` is filtered to the caller. Detail denial is 404, lifecycle fields are rejected by PATCH (422), and assignment requires `leads.assign` | Manual entry must not bypass the import invariants; a cursor avoids offset drift while new leads arrive; scope denial must not reveal existence; keeping lifecycle in M2.5 prevents two write paths | Duplicating import logic in the router; page/offset pagination; allowing lifecycle through PATCH |
 | D-057 | `POST /api/public/enquiries` is unauthenticated but runs through a Redis fixed-window limiter before CAPTCHA verification and lead creation. CAPTCHA sits behind a `CaptchaVerifier` protocol with a deterministic mock; rate limiting fails closed with 503 if Redis is unavailable. Public leads always use the `Website` source, reuse `create_or_get_lead`, and record promotional/transactional consent only for channels actually supplied, with `source=method=web_form`. The response is a minimal acknowledgement and never echoes PII | Keeps the public surface from bypassing dedupe or consent, limits abuse before touching the database, and avoids revealing whether an enquiry matched an existing student; mocks keep tests hermetic | Trusting client-supplied source; requiring consent to create the lead; accepting unbounded unauthenticated writes; calling a vendor SDK from the router |
 | D-058 | Partner API keys are random `enr_` tokens generated with `secrets.token_urlsafe(32)`; only the SHA-256 hash and a 12-character prefix are stored. Each key is scoped to one `lead_sources` row, may expire, and is provisioned by an admin through `POST /api/integrations/api-keys` (`integrations.manage`); partners send `X-API-Key` or Bearer. `POST /api/integrations/leads` ignores any body `source`, validates every record through the import parser, commits each record inside a savepoint, enforces the configurable 1,000-record cap before writing, and reports `created`/`merged`/`duplicate`/`rejected` with candidate/conflict handling. Webhook signatures use `t=<unix>,v1=<hmac-sha256>` with a five-minute default tolerance | Hashing at rest limits key leaks, source scoping prevents a partner from spoofing another channel, savepoints keep one bad record from aborting a batch, and reusing the import path prevents API/import drift | Storing plaintext keys; trusting a body source; failing the whole batch on one bad record; inventing a second validation path |
+| D-059 | M2.10 adds only the backend read/write support the screens need: `GET /api/leads?search=` searches owned-scope leads with an escaped contains match over first/last/full name, email, and phone; `GET /api/catalogues` returns active programmes/campuses/sources to `leads.view_all` or `leads.view_assigned`; and `POST /api/leads/{id}/lifecycle` takes `to_state` + `reason`, applies the M2.5 actor rules (422 invalid pair, 403 not permitted, 404 out of scope), and writes the usual timeline event. List rows gain `student` plus programme/campus/source/counsellor names, and detail gains the same names plus `allowed_transitions` in funnel order | The UI must not invent endpoints or duplicate permission/lifecycle logic; one service stays authoritative, the list avoids N+1 follow-up calls for display names, and the frontend can disable impossible buttons while the API still enforces them | Querying catalogues per filter field; returning raw ids for the UI to resolve; a second lifecycle write path; client-side transition validation only |
+| D-060 | Search escapes `%`, `_`, and `\` and uses `ILIKE ... ESCAPE '\'`, and every search remains inside the caller's `leads.view_assigned` scope | A literal wildcard must not broaden a counsellor's visible set or turn into an accidental full-table scan; scoping stays identical to the unfiltered list | Unescaped `ILIKE`; a separate search permission |
+| D-061 | Lead management UI is split by permission: `/sections/leads` and `/sections/leads/import` require `leads.view_all`, while `/sections/my-leads` requires `leads.view_assigned`; `/sections/leads/new` is available to both and detail pages adapt the back link. `RequirePermission` renders an access message, but the API remains the enforcement boundary (R-009) | Managers and counsellors see different navigation already, and the list/detail routes must not silently show empty data to a role that cannot call the API; keeping the server authoritative avoids a second authorization source | One shared route that hides controls client-side; adding new permissions for UI routes |
+| D-062 | The import wizard uploads first (headers only), then loads a saved template by source name or guesses from common headers, previews mapped fields, starts processing, and renders terminal counts plus the error CSV. The Playwright import test copies the committed 100-row fixture with unique emails/phones per run, and CI sets `IMPORT_PROCESSING_MODE=inline` for the e2e job | Saving nothing until the user confirms the mapping matches the M2.3 API, and unique contacts keep the counted 85 created/5 duplicates/10 rejected stable across repeated runs; inline mode lets the browser flow finish without a Celery worker while the default stays `celery` | Creating leads during upload; reusing fixed contacts (later runs would become duplicates); running a worker in the Playwright job |
 
 ## 4. Architecture in one paragraph
 
@@ -240,9 +246,12 @@ mock. Frontend is a separate Next.js app. Full detail:
 - **Frontend API URL:** `NEXT_PUBLIC_API_URL` lives in `frontend/.env.example`
   and defaults to `http://localhost:8000`. Copy it to `frontend/.env.local` only
   when the backend is elsewhere; the root `.env` does not hold browser values.
-- **End-to-end:** with the API running on `:8000` and demo users seeded,
-  `make test-e2e` runs Playwright (it starts Next.js itself). `SEED_DEMO_PASSWORD`
-  must match the backend; it defaults to `dev-only-password`.
+- **End-to-end:** with the API running on `:8000` with `IMPORT_PROCESSING_MODE=inline`
+  and demo users seeded, `make test-e2e` runs Playwright (it starts Next.js
+  itself). `SEED_DEMO_PASSWORD` must match the backend; it defaults to
+  `dev-only-password`. The import spec copies the committed 100-row fixture with
+  unique contacts per run and asserts 85 created, 5 duplicates, 10 rejected.
+  CI's Playwright job exports the same inline mode so no worker is needed.
 - **Authorisation:** protected endpoints take `Depends(require_permission(...))`
   and return 403 when the role lacks it; resource checks use
   `can_access_lead`/equivalent and return 404 on denial. See §6.
@@ -291,7 +300,7 @@ Details live in [`ARCHITECTURE.md`](ARCHITECTURE.md); this is the quick version.
 | R-008 | The last System Admin can deactivate themselves or strip `users.manage`/`roles.manage` from `system_admin`, leaving no one able to administer the system | Add the guard decided in Q-007 before any shared deployment; acceptable for local development |
 | R-009 | The frontend route guard is cosmetic: a user can open any `/sections/*` URL | Routes render no data; every API call is authorised server-side. Never move access checks into the UI only |
 | R-010 | ~~M2.3 rejects a row whose email and phone point at different existing students without a review record~~ **Resolved in M2.4:** conflicting contacts now reject the row and create a pending `duplicate_candidates` entry; name-only matches create candidates without auto-merging | Done; keep the stable `conflicting_contact` reason |
-| R-011 | M2.5 ships the lifecycle service but no HTTP endpoint; M2.7 rejects `lifecycle_status` in `PATCH /api/leads/{id}` | Add a dedicated transition endpoint (with actor/reason and permission checks) before the frontend needs manual transitions |
+| R-011 | ~~M2.5 ships the lifecycle service but no HTTP endpoint; M2.7 rejects `lifecycle_status` in `PATCH /api/leads/{id}`~~ **Resolved in M2.10:** `POST /api/leads/{id}/lifecycle` applies the actor rules with `to_state` + `reason`, and detail returns `allowed_transitions` | Keep lifecycle writes on the dedicated endpoint; PATCH stays lifecycle-free |
 | R-012 | `GET /api/leads/{id}` returns `assessments: []` because no assessment table/model exists yet, although the M2.7 plan names latest assessments | Wire the query when M6.1 adds assessments; the response shape already reserves the field |
 | R-013 | The public enquiry CAPTCHA is a mock verifier. `USE_MOCK_CAPTCHA=false` currently has no real adapter and fails closed with a 500 at the dependency | Add a Turnstile/reCAPTCHA adapter before exposing the form publicly; the provider interface and mock already exist |
 | R-014 | Public enquiry rate limiting keys on `request.client.host`; behind a reverse proxy every request may share the proxy IP and exhaust the allowance | Decide trusted-proxy/forwarded-header handling before deployment; do not trust `X-Forwarded-For` blindly |
@@ -358,3 +367,4 @@ Checklist for every task commit:
 | 2026-11-03 | M2.7: cursor-paginated scoped lead list with filters and sorting, lead detail with student/consent summary, manual creation through the shared dedupe path, lifecycle-free PATCH, assignment checks, and a 10,000-lead P95 performance test; 304 backend tests and 4 frontend tests pass. |
 | 2026-11-03 | M2.8: public enquiry endpoint with Redis per-IP rate limiting, mock CAPTCHA verifier, Website source, shared dedupe lead creation, web-form consent records, and duplicate detection; 315 backend tests and 4 frontend tests pass. |
 | 2026-11-03 | M2.9: migration `0007` adds source-scoped hashed API keys; admin key provisioning, API-key/Bearer authentication, import-equivalent batch validation and dedupe, per-record results and savepoint isolation, 1,000-record limit, and an HMAC webhook signature helper; 323 backend tests and 4 frontend tests pass. |
+| 2026-11-03 | M2.10: lead list with escaped search/filters/cursor paging, my-leads scoping, validated manual entry, import wizard with saved/guessed mapping and error CSV, lead detail with permission-filtered lifecycle and consent panel; backend adds catalogues, lifecycle transition endpoint, enriched names, and `allowed_transitions`; 328 backend tests, 8 frontend tests, and 6 Playwright flows pass. **Milestone M2 complete.** |

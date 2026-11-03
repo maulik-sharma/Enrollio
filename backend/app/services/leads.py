@@ -83,6 +83,7 @@ async def list_leads(
     cursor: str | None,
     limit: int,
     sort: str,
+    search: str | None,
     lifecycle_status: LifecycleStatus | None,
     programme_id: uuid.UUID | None,
     source_id: uuid.UUID | None,
@@ -101,6 +102,7 @@ async def list_leads(
     rows = await leads_repo.list_page(
         session,
         scoped_counsellor_id=scope,
+        search=search,
         lifecycle_status=lifecycle_status,
         programme_id=programme_id,
         source_id=source_id,

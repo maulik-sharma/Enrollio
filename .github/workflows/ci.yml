@@ -119,6 +119,8 @@ jobs:
       SEED_DEMO_USERS: "true"
       SEED_DEMO_PASSWORD: dev-only-password
       CORS_ORIGINS: http://localhost:3000
+      # Inline processing lets the browser import flow finish without a worker.
+      IMPORT_PROCESSING_MODE: inline
     services:
       postgres:
         image: pgvector/pgvector:pg16

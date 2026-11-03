@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from app import __version__
 from app.api.auth import router as auth_router
+from app.api.catalogues import router as catalogues_router
 from app.api.duplicates import router as duplicates_router
 from app.api.health import router as health_router
 from app.api.imports import router as imports_router
@@ -66,6 +67,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(users_router)
     application.include_router(roles_router)
     application.include_router(students_router)
+    application.include_router(catalogues_router)
     application.include_router(duplicates_router)
     application.include_router(imports_router)
     application.include_router(integrations_router)

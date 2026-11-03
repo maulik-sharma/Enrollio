@@ -137,6 +137,21 @@ def allowed_transitions(
     return targets
 
 
+_DISPLAY_ORDER: tuple[LifecycleStatus, ...] = FUNNEL + tuple(
+    state for state in LifecycleStatus if state in _CLOSING_STATES
+)
+
+
+def ordered_allowed_transitions(
+    current: LifecycleStatus,
+    *,
+    actor: TransitionActor,
+) -> list[LifecycleStatus]:
+    """Return allowed targets in funnel order for API responses and buttons."""
+    allowed = allowed_transitions(current, actor=actor)
+    return [state for state in _DISPLAY_ORDER if state in allowed]
+
+
 def validate_transition(
     current: LifecycleStatus,
     target: LifecycleStatus,

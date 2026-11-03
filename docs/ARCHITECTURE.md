@@ -27,9 +27,9 @@
 │   ├── requirements-dev.txt
 │   └── Dockerfile
 ├── frontend/                # Next.js 15 App Router (TypeScript, Tailwind 4)
-│   ├── app/                 # routes: `/`, `/login`, `/sections/[slug]`
-│   ├── components/          # auth provider, protected shell, navigation
-│   ├── lib/                 # API client, types, navigation catalog
+│   ├── app/                 # routes: `/`, `/login`, `/sections/leads`, `/sections/my-leads`, `/sections/[slug]`
+│   ├── components/          # auth provider, protected shell, navigation, lead screens, import wizard
+│   ├── lib/                 # API clients, types, navigation catalog, lifecycle helpers
 │   ├── tests/               # Vitest
 │   └── e2e/                 # Playwright
 ├── docker-compose.yml       # api, web, worker, db, redis, minio
@@ -452,6 +452,48 @@ and is checked before any write (413). `core/webhooks.py` provides
 `sign_webhook`/`verify_webhook_signature` using `t=<unix>,v1=<hmac-sha256>` with
 a five-minute default tolerance; no provider webhook route uses it yet.
 
+### Frontend lead management (M2.10)
+
+The authenticated Next.js app now renders the M2 lead workflows. Routes are
+permission-scoped in the UI and always re-checked by the API (R-009):
+
+- `/sections/leads` — manager list with a search box, lifecycle/programme/
+  campus/source filters, and cursor paging. Previous pages replay saved cursors
+  so a stack of `(sort value, id)` cursors never returns to page one.
+- `/sections/my-leads` — the same list for `leads.view_assigned`; the API adds
+  the counsellor scope.
+- `/sections/leads/new` — validated manual creation; a `duplicate_detected`
+  response shows the existing lead instead of navigating to a new one.
+- `/sections/leads/import` — three steps: upload (headers only), column mapping
+  (saved template by source name, otherwise header guessing, with ignored
+  columns removed from the payload), then results. Results show total/created/
+  merged/duplicate/rejected counts and offer the error CSV. Processing is polled
+  until `completed`/`failed`; local and CI e2e runs use `IMPORT_PROCESSING_MODE=inline`.
+- `/sections/leads/[id]` — student and lead details, consent table with
+  grant/revoke controls for managers, the timeline placeholder, and a lifecycle
+  form built from `allowed_transitions`. The API still rejects invalid,
+  unpermitted, or out-of-scope transitions.
+
+Supporting API additions:
+
+- `GET /api/leads?search=` adds an escaped `ILIKE` contains match over student
+  first/last/full name, email, and phone; it composes with every existing filter
+  and the caller's scope (D-060).
+- `GET /api/catalogues` returns active programmes, campuses, and sources to lead
+  staff so filters and forms do not need one request per catalogue.
+- List rows embed a `student` summary plus programme/campus/source/counsellor
+  names (eager-loaded, no per-row follow-up); detail adds the same names and
+  `allowed_transitions` in funnel order.
+- `POST /api/leads/{id}/lifecycle` accepts `to_state` + `reason` and delegates to
+  the M2.5 service, mapping invalid pairs to 422, permission failures to 403,
+  and out-of-scope/missing leads to 404 (R-011 resolved).
+
+Frontend API clients live in `lib/leads-api.ts` and `lib/imports-api.ts`; the
+latter also holds `suggestMapping`, `mappingPayload`, and the system-field list
+used by the mapping component. `lib/lifecycle.ts` owns labels, tones, and date/
+name formatting. `lib/api.ts` now leaves multipart bodies untouched so the
+browser sets the upload boundary.
+
 ## 9. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -471,7 +513,7 @@ asserts that every table disappears again, so every revision must round-trip.
 | Unit | `backend/tests/unit` | No infrastructure |
 | Integration | `backend/tests/integration` | PostgreSQL and Redis |
 | Frontend unit | `frontend/tests` | Node only |
-| End-to-end | `frontend/e2e` | API on `:8000`, seeded demo users, Chromium |
+| End-to-end | `frontend/e2e` | API on `:8000` with `IMPORT_PROCESSING_MODE=inline`, seeded demo users, Chromium |
 
 Integration tests use a dedicated `enrollio_test` database through
 `TEST_DATABASE_URL`; they never touch `DATABASE_URL`. Locally, unreachable
@@ -525,6 +567,12 @@ updates, lifecycle rejection, assignment permissions, and a separately marked
 `performance` test that bulk-inserts 10,000 leads and checks list P95 against a
 conservative 1.5 s threshold.
 
+Lead screen support tests (`tests/integration/test_lead_screens_api.py`) cover
+the escaped search over name/email/phone (including a literal `%` and counsellor
+scoping), catalogue access and role denial, actor-filtered
+`allowed_transitions`, lifecycle endpoint success and 422/403/404 cases with
+timeline writes, and manual creation defaults used by the form.
+
 Public enquiry tests (`tests/integration/test_public_enquiries.py`) submit the
 real endpoint and assert the Website source, consent rows, missing-checkbox
 behaviour, duplicate flag, CAPTCHA rejection, contact requirement, programme
@@ -540,11 +588,22 @@ keys, enforce the 1,000-record 413 before writes, accept the envelope form, and
 push 500 leads successfully. `tests/unit/test_webhooks.py` covers valid HMAC
 signatures, tampering, wrong secrets, stale timestamps, and malformed headers.
 
+Frontend unit tests (`frontend/tests/navigation.test.tsx` and
+`import-mapping.test.tsx`) cover the permission-filtered menu and prove the
+mapping component's suggested/saved/ignored selections produce the payload the
+API receives.
+
 Playwright (`frontend/e2e/auth.spec.ts`) drives the real stack: it logs in as
 each seeded role, asserts the role-specific menu, logs out, and confirms a
-reload cannot restore the session. `make test-e2e` runs it against a locally
-running API; CI uses a dedicated job with Postgres, Redis, migrations, seed,
-Uvicorn, and Chromium (D-031).
+reload cannot restore the session. `frontend/e2e/leads.spec.ts` imports a
+100-row CSV through the wizard, asserts the 100/85/0/5/10 counts and the 10-row
+error report, then signs in as a counsellor and proves an unassigned lead is
+absent from `/sections/my-leads`. The import spec rewrites the committed fixture
+with unique contacts per run, so repeated local runs still exercise creation
+rather than becoming all-duplicate runs. Both specs need the API with
+`IMPORT_PROCESSING_MODE=inline`; `make test-e2e` runs them against a locally
+running API, and CI uses a dedicated job with Postgres, Redis, migrations, seed,
+Uvicorn, and Chromium (D-031, D-062).
 
 CI (`.github/workflows/ci.yml`) runs backend lint/type-check/tests against
 `pgvector/pgvector:pg16` and Redis service containers, frontend
