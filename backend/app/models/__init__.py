@@ -14,6 +14,7 @@ from app.models.lead import Lead
 from app.models.lead_source import LeadSource
 from app.models.message import Message
 from app.models.message_event import MessageEvent
+from app.models.message_template import MessageTemplate
 from app.models.mock_email_message import MockEmailMessage
 from app.models.permission import Permission
 from app.models.programme import Programme
@@ -27,6 +28,7 @@ __all__ = [
     "ApiKey",
     "ApprovalItem",
     "Base",
+    "MessageTemplate",
     "Campus",
     "ConsentRecord",
     "Conversation",

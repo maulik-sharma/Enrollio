@@ -88,6 +88,13 @@ class SendStatus(StrEnum):
     PENDING_APPROVAL = "pending_approval"
 
 
+class TemplateStatus(StrEnum):
+    """Review state of a message template."""
+
+    DRAFT = "draft"
+    APPROVED = "approved"
+
+
 class MessageDirection(StrEnum):
     """Whether a message left the system or arrived from a provider."""
 

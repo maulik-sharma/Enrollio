@@ -40,6 +40,7 @@ EXPECTED_TABLES = {
     "conversations",
     "messages",
     "message_events",
+    "message_templates",
     "approval_items",
 }
 

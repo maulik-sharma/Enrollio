@@ -137,6 +137,9 @@ class Settings(BaseSettings):
     PROMOTIONAL_CAP_PER_WINDOW: int = 2
     PROMOTIONAL_CAP_WINDOW_DAYS: int = 7
 
+    # Unsubscribe link appended to every rendered promotional message.
+    UNSUBSCRIBE_URL: str = "https://enrollio.example/unsubscribe"
+
     # Maximum records accepted in one partner API ingestion batch.
     API_INGESTION_MAX_RECORDS: int = 1000
 
