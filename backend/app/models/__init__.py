@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from app.models.api_key import ApiKey
+from app.models.approval_item import ApprovalItem
 from app.models.base import Base
 from app.models.campus import Campus
 from app.models.consent_record import ConsentRecord
@@ -24,6 +25,7 @@ from app.models.user import User
 
 __all__ = [
     "ApiKey",
+    "ApprovalItem",
     "Base",
     "Campus",
     "ConsentRecord",

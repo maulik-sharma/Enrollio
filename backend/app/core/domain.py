@@ -68,6 +68,26 @@ class MessageChannel(StrEnum):
     SMS = "sms"
 
 
+class MessageCategory(StrEnum):
+    """Outbound message categories (FR-04 consent classes plus FR-08 intents)."""
+
+    TRANSACTIONAL = "transactional"
+    PROMOTIONAL = "promotional"
+    SCHOLARSHIP = "scholarship"
+    FEE = "fee"
+    ADMISSION_OFFER = "admission_offer"
+    DEADLINE_CHANGE = "deadline_change"
+
+
+class SendStatus(StrEnum):
+    """Outcome of one `messaging.send` call."""
+
+    SENT = "sent"
+    QUEUED = "queued"
+    BLOCKED = "blocked"
+    PENDING_APPROVAL = "pending_approval"
+
+
 class MessageDirection(StrEnum):
     """Whether a message left the system or arrived from a provider."""
 
@@ -149,6 +169,15 @@ class DuplicateResolution(StrEnum):
     MERGED = "merged"
     KEPT_SEPARATE = "kept_separate"
     REJECTED = "rejected"
+
+
+class ApprovalStatus(StrEnum):
+    """Review state of an approval item (FR-15)."""
+
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EDITED = "edited"
 
 
 LIFECYCLE_TERMINAL_STATES: frozenset[LifecycleStatus] = frozenset(
