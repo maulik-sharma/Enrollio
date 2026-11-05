@@ -559,9 +559,41 @@ and `messages.id → message_events.message_id` all use `ON DELETE CASCADE`, so
 removing a lead removes its communication history. The unique provider event id
 is the idempotency boundary (D-066): webhook handlers insert the event before
 applying a status change, so a replayed delivery is rejected by the database
-instead of updating the message twice. Inbound replies, status transitions, and
-timeline emissions are implemented in M3.3 onward; M3.2 ships the schema and
-its database-level guarantees.
+instead of updating the message twice. M3.3 adds the outbound send path (below);
+inbound reply processing and webhook status changes land in M3.7/M3.8.
+
+### Single messaging entry point (M3.3)
+
+`app/services/messaging.py::send` is the only place in `app/` that may reach a
+provider adapter; a unit grep test
+(`tests/unit/test_messaging_is_entry_point.py`) keeps it that way. The guard
+pipeline runs in order and every step logs its decision without PII (lead/
+student ids, channel, category, actor type only):
+
+1. **Consent (D-052..):** the category maps to a consent class — promotional
+   uses `PROMOTIONAL`; transactional plus the sensitive categories
+   (scholarship, fee, admission offer, deadline change) use `TRANSACTIONAL`
+   — and the latest consent record decides.
+2. **Frequency cap:** promotional sends count `message_sent` timeline events
+   for the student inside `PROMOTIONAL_CAP_WINDOW_DAYS`
+   (`PROMOTIONAL_CAP_PER_WINDOW`, default 2/7d).
+3. **Quiet hours:** promotional sends inside
+   `QUIET_HOURS_START_HOUR..QUIET_HOURS_END_HOUR` (in `QUIET_HOURS_TIMEZONE`,
+   default 21–09 `Asia/Kolkata`) are stored as `queued` message rows with no
+   provider call and no `message_sent` event; the result carries
+   `next_allowed_at` (the window end).
+4. **Approval:** sensitive categories require a human decision — the first
+   request creates a pending `approval_items` row (`type=message_send`,
+   migration `0010`) and repeats return the existing pending item.
+
+A missing recipient address blocks with `missing_recipient_address`; a send
+through any other channel raises `WhatsAppNotImplemented` (Phase 2). On the
+happy path the provider is called first, then the conversation
+(`last_message_at`) is touched/created, the `messages` row is written with the
+provider id and `sent` status, and one `message_sent` timeline event records
+category/channel/message id/subject. The service does not commit; the caller
+owns the transaction. Queued sends stay usable for M3.6/M3.7 because the row
+already carries the content without a provider id.
 
 ## 10. Database migrations
 
@@ -571,8 +603,9 @@ Migrations are the only way schema changes are applied; the API container runs
 `alembic upgrade head` before starting. `0004` adds the lead CRM tables and
 `0005` adds the import pipeline plus student score/year columns and `0006` adds
 duplicate candidates; `0007` adds source-scoped hashed API keys (§8); `0008`
-adds the mock email provider's `mock_email_messages` table (§9); and `0009` adds
-the messaging schema (§9). M2.7, M2.8, and M2.10 add no migration; their
+adds the mock email provider's `mock_email_messages` table (§9); `0009` adds
+the messaging schema (§9); and `0010` adds the `approval_items` table that M3.3
+uses for sensitive-send approvals (§9). M2.7, M2.8, and M2.10 add no migration; their
 contracts are recorded in D-056/D-057/D-059, and M2.9 is recorded in D-058. The
 migration test downgrades to base, upgrades to head, and asserts that every
 table disappears again, so every revision must round-trip.
@@ -650,6 +683,18 @@ behaviour, duplicate flag, CAPTCHA rejection, contact requirement, programme
 validation, appearance in the manager lead list, and the 11th-request 429 with a
 `Retry-After` header. `tests/unit/test_captcha.py` covers the mock verifier and
 factory selection.
+
+Messaging entry point tests: `tests/unit/test_messaging_guards.py` covers the
+quiet-window hour logic (wrapped and same-day windows, empty window), the
+`next_allowed_at` roll-forward, and the category→consent mapping.
+`tests/integration/test_messaging_send.py` proves consent refusal leaves the
+provider untouched, the third promotional send in seven days is blocked until
+one event ages out, a sensitive category creates exactly one pending approval
+and a repeat returns it, quiet hours queue a message row without a provider
+call, the happy path records message/conversation `last_message_at`/timeline
+event, a missing recipient address blocks, and WhatsApp raises. The section-11
+grep gate `tests/unit/test_messaging_is_entry_point.py` keeps adapter access
+inside `app/services/messaging.py` and `app/integrations/`.
 
 Partner ingestion tests (`tests/integration/test_api_ingestion.py`) provision a
 key as admin, reject manager/anon creation, assert the key's source overrides a

@@ -128,6 +128,15 @@ class Settings(BaseSettings):
     ENQUIRY_RATE_LIMIT_WINDOW_SECONDS: int = 3600
     USE_MOCK_CAPTCHA: bool = True
 
+    # Quiet hours (PRD FR-04): non-urgent messages wait until the window ends.
+    QUIET_HOURS_START_HOUR: int = 21
+    QUIET_HOURS_END_HOUR: int = 9
+    QUIET_HOURS_TIMEZONE: str = "Asia/Kolkata"
+
+    # Promotional frequency cap: max sends per student across the window.
+    PROMOTIONAL_CAP_PER_WINDOW: int = 2
+    PROMOTIONAL_CAP_WINDOW_DAYS: int = 7
+
     # Maximum records accepted in one partner API ingestion batch.
     API_INGESTION_MAX_RECORDS: int = 1000
 

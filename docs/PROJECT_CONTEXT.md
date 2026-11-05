@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-03, after the `Resend` email adapter (M3.1 extension)
-- **Current position:** M0 · M1 · M2 complete · M3.1–M3.2 complete → **next task M3.3**
+- **Last updated:** 2026-11-05, after `M3.3` (single messaging entry point)
+- **Current position:** M0 · M1 · M2 complete · M3.1–M3.3 complete → **next task M3.4**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -27,7 +27,7 @@ project is operated, and what is still open.
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
 | M2 Lead CRM and ingestion | ✅ Complete | M2.1–M2.10 complete; lead management screens ship with import, list, detail, and manual entry |
-| M3 Communication and campaigns | 🚧 In progress | M3.1–M3.2 complete; next M3.3 single messaging entry point |
+| M3 Communication and campaigns | 🚧 In progress | M3.1–M3.3 complete; next M3.4 template engine |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
 | M6 Lead/conversation intelligence | ⬜ Not started | |
@@ -75,18 +75,20 @@ project is operated, and what is still open.
 | --- | --- | --- |
 | M3.1 Provider interfaces and mocks | ✅ | `EmailProvider` protocol (`send`, `parse_inbound`, `verify_webhook`) and provider-neutral `EmailMessage`/`InboundMessage`; DB-backed `MockEmailProvider` (migration `0008` creates `mock_email_messages`) with outbound sends, inbound-reply capture, and delivery-event helpers; SendGrid v3 and Resend HTTP adapters over injected `httpx` with offline contract tests, Basic-auth Inbound Parse verification, and Svix-signed Resend webhooks that fetch the received body; factory defaults to the mock and fails closed for SES; WhatsApp interface plus a stub that raises `WhatsAppNotImplemented` |
 | M3.2 Message and conversation data model | ✅ | Migration `0009` adds `conversations` (one per lead/channel, open/closed, `last_message_at`), `messages` (direction, channel, text/HTML, provider id unique per channel, status, intent, nullable `created_by_agent_action_id`), and `message_events` (event type, globally unique `provider_event_id`, `occurred_at`); lead → conversation → message → event deletes cascade, and a duplicate provider event is rejected without applying a second status change |
+| M3.3 Single messaging entry point | ✅ | `app/services/messaging.py::send` is the only call path to a provider adapter, guarded in order by consent → promotional frequency cap (timeline `message_sent` events) → quiet hours (promotional sends queue as `queued` message rows with `next_allowed_at`) → approval (sensitive categories create a pending `approval_items` row, migration `0010`; repeats return the existing pending item). Missing recipient address blocks; a unit grep test keeps every other module away from the adapters |
 
-### Verification snapshot (2026-11-03, after the Resend adapter)
+### Verification snapshot (2026-11-05, after M3.3)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy; ESLint)
 make typecheck            pass (mypy strict; frontend tsc --noEmit)
-make test                 360 backend tests pass (2 opt-in live provider checks skipped),
-                          8 frontend tests pass
+make test                 391 backend tests pass (2 opt-in live provider checks skipped),
+                          frontend unchanged since M2.10 (8 tests)
 make test-e2e             6 Playwright tests pass locally with the API on :8000 and
                           IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3 has no UI change)
-make migrate              pass (0009 applied)
-make migrate-test         pass (0009 applied; migration test upgrades/downgrades)
+make migrate              pass (0010 applied)
+make migrate-test         pass (0010 applied; migration test upgrades/downgrades;
+                          0010 downgrade/upgrade re-verified manually)
 make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
                           2 campuses, 4 lead sources; idempotent)
 make smoke                not rerun after M2.3/M2.9 (host port 5432 is occupied by the
@@ -207,6 +209,7 @@ not taken.
 | D-065 | M3 defines the WhatsApp interface, message dataclasses, and a stub provider whose methods raise `WhatsAppNotImplemented`; no factory selects a Cloud API adapter until Phase 2 | Keeps downstream signatures stable without pretending an untested vendor integration works; the task explicitly marks WhatsApp as a stub | Implementing Cloud API early; omitting the interface |
 | D-066 | M3.2 stores messaging state in three tables: `conversations` is unique per `(lead_id, channel)` and carries `last_message_at`; `messages` denormalises `channel`, scopes `provider_message_id` uniqueness to the channel, and keeps `created_by_agent_action_id` as a plain UUID; `message_events` holds an append-only event log with a globally unique `provider_event_id`. Deletes cascade lead → conversation → message → event, and webhook handlers must insert the event before applying a status change so a replayed event fails the unique constraint | One thread per lead/channel makes inbound and outbound paths converge without a race; provider ids are only unique inside a provider namespace; the event uniqueness is the idempotency boundary, and ordering the insert first prevents a duplicate payload from mutating message state | A second thread per lead/channel; global provider-message uniqueness that blocks cross-channel ids; updating status before recording the event; storing the agent action as a hard FK before the agent-run table exists |
 | D-067 | Resend is the second real email adapter. Sending posts to `https://api.resend.com/emails` with a Bearer key and reads the response `id`; metadata becomes Resend tags. Inbound `email.received` webhooks are verified as Svix signatures (`svix-id`, `svix-timestamp`, `svix-signature`, five-minute tolerance), then the adapter fetches `GET /emails/receiving/{id}` for subject, body, and headers because Resend webhooks carry metadata only. `EMAIL_WEBHOOK_SECRET` is the `whsec_...` signing secret for Resend and the Basic-auth password for SendGrid | Resend provides inbound email with a single provider, and fetching the body is the documented flow; implementing the signature check locally keeps `httpx` as the only HTTP dependency and avoids a vendor SDK. The generic email settings mean switching providers changes one enum value | Treating the metadata-only webhook as a full message; skipping Svix verification; importing the Resend SDK into business code |
+| D-068 | M3.3 makes `app/services/messaging.py::send(session, settings, provider, lead=…, channel=…, category=…, content=…, actor=…)` the single path to any provider adapter (enforced by a unit grep test over `app/`). Guard order is consent → promotional frequency cap → quiet hours → approval. Sensitive categories (scholarship, fee, admission offer, deadline change) ride the transactional consent class and require a pending `approval_items` row (`type=message_send`, migration `0010`); a repeat request returns the existing pending item instead of duplicating it. Promotional sends inside quiet hours create a `queued` message row, skip the provider and the `message_sent` timeline event, and return `next_allowed_at`, the window end in `QUIET_HOURS_TIMEZONE`. Missing recipient address blocks with `missing_recipient_address`; non-email channels raise `WhatsAppNotImplemented` until Phase 2 | The plan requires every guard to run for every send and the grep check to hold; counting cap usage from timeline events reuses the append-only audit trail instead of a new counter table; approval-first for sensitive categories means unsent content never touches a provider | Bypassing `send` from campaign or agent code (grep gate fails); recording a `sent` timeline event for a queued or refused send; a second approval item per repeat request; per-lead cap counters that drift from the timeline |
 
 ## 4. Architecture in one paragraph
 
@@ -259,6 +262,12 @@ mock. Frontend is a separate Next.js app. Full detail:
   live checks also need `EMAIL_CONTRACT_TO` (plus `EMAIL_PROVIDER=resend` for
   Resend). `EMAIL_PROVIDER=ses` fails with `EmailNotConfigured` until an adapter
   lands.
+- **Messaging guards (M3.3):** quiet hours default 21:00–09:00 `Asia/Kolkata`
+  and only promotional sends queue inside them; the integration tests disable
+  the window (start 9, end 9) so they are time-of-day independent. The
+  promotional cap counts `message_sent` timeline events per student
+  (default 2 per 7 days). Approval items carry `type=message_send` payloads
+  with channel/category/subject.
 - **Demo logins:** `admin@enrollio.dev`, `manager@enrollio.dev`,
   `counsellor@enrollio.dev` with `SEED_DEMO_PASSWORD`. `.dev` is used because
   `EmailStr` rejects `.test` (D-023).
@@ -395,3 +404,4 @@ Checklist for every task commit:
 | 2026-11-03 | M3.1: provider-neutral email contract, DB-backed mock with inbound/delivery helpers (migration `0008`), SendGrid v3 adapter over injected `httpx` with Basic-auth inbound verification, mock-first factory, WhatsApp interface and stub, contract/factory tests; 347 backend tests pass with 1 opt-in live SendGrid test skipped. |
 | 2026-11-03 | M3.2: migration `0009` adds `conversations`, `messages`, and `message_events` with one thread per lead/channel, channel-scoped provider message ids, globally unique provider event ids, and lead → conversation → message → event cascades; integration tests prove conversation defaults/uniqueness, provider message uniqueness, duplicate-event rejection without a second status change, and SQL/ORM cascade deletion; 352 backend tests pass with 1 opt-in live SendGrid test skipped. |
 | 2026-11-03 | Resend adapter (M3.1 extension): `POST /emails` sending with tags, Svix signature verification with a five-minute tolerance, `email.received` handling that fetches `/emails/receiving/{id}` for the body, factory selection via `EMAIL_PROVIDER=resend`, shared contract tests across mock/SendGrid/Resend, Resend payload/inbound/signature tests, and opt-in live checks; 360 backend tests pass with 2 live provider checks skipped. |
+| 2026-11-05 | M3.3: migration `0010` adds `approval_items`; `messaging.send` becomes the single provider call path with consent, promotional frequency cap (counted from `message_sent` timeline events), quiet-hours queueing, and pending approvals for sensitive categories; repositories for conversations/messages/approvals/timeline and a unit grep test that keeps adapter access inside the entry point; 391 backend tests pass with 2 live provider checks skipped. |

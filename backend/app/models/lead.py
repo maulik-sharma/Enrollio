@@ -14,6 +14,7 @@ from app.models.base import Base, TimestampMixin, UUIDPrimaryKeyMixin
 from app.models.types import enum_column
 
 if TYPE_CHECKING:
+    from app.models.approval_item import ApprovalItem
     from app.models.campus import Campus
     from app.models.conversation import Conversation
     from app.models.import_job import ImportJob
@@ -89,3 +90,4 @@ class Lead(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         back_populates="lead",
         cascade="all, delete-orphan",
     )
+    approval_items: Mapped[list[ApprovalItem]] = relationship(back_populates="lead")
