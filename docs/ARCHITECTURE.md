@@ -595,6 +595,32 @@ category/channel/message id/subject. The service does not commit; the caller
 owns the transaction. Queued sends stay usable for M3.6/M3.7 because the row
 already carries the content without a provider id.
 
+### Template engine (M3.4)
+
+Migration `0011` adds `message_templates`: `name`, `channel`, `category`,
+`subject`, `body`, `version`, and a draft → approved `status`. `(name,
+version)` is unique, so a revised template is a new row rather than an in-place
+edit, and `(channel, category, status)` is indexed for template pickers.
+M3.4 ships storage and rendering only; M3.5's campaign APIs select approved
+rows and feed rendered output to `messaging.send` (D-068).
+
+Rendering lives in `app/services/templates.py` and is pure:
+
+- Templates use `{{placeholder}}` syntax (regex-tolerant to internal spaces).
+  A closed whitelist (`PLACEHOLDERS`: first/last name, programme, campus,
+  deadline, counsellor name, admission cycle, application link) is enforced;
+  unknown names fail like missing values so typos never send.
+- Every missing and unsupported placeholder is collected into **one**
+  `TemplateRenderError` that lists them, satisfying AC5.2 (no partial sends,
+  per-recipient reports). Blank (whitespace-only) values count as missing.
+- The text/plain variant substitutes raw values; the HTML variant re-renders
+  the body with `html.escape` per line plus `<br/>` joins inside an
+  `<html><body>` shell, so student-supplied names cannot inject markup.
+- Promotional renders append the unsubscribe footer — `Unsubscribe: {url}` in
+  text and an `<a href>` anchor in HTML — while transactional renders do not
+  (AC4.2). The caller injects the `UNSUBSCRIBE_URL` setting so the renderer
+  stays pure and testable.
+
 ## 10. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -604,8 +630,9 @@ Migrations are the only way schema changes are applied; the API container runs
 `0005` adds the import pipeline plus student score/year columns and `0006` adds
 duplicate candidates; `0007` adds source-scoped hashed API keys (§8); `0008`
 adds the mock email provider's `mock_email_messages` table (§9); `0009` adds
-the messaging schema (§9); and `0010` adds the `approval_items` table that M3.3
-uses for sensitive-send approvals (§9). M2.7, M2.8, and M2.10 add no migration; their
+the messaging schema (§9); `0010` adds the `approval_items` table for M3.3's
+sensitive-send approvals (§9); and `0011` adds `message_templates` for the
+M3.4 template engine (§9). M2.7, M2.8, and M2.10 add no migration; their
 contracts are recorded in D-056/D-057/D-059, and M2.9 is recorded in D-058. The
 migration test downgrades to base, upgrades to head, and asserts that every
 table disappears again, so every revision must round-trip.
@@ -695,6 +722,19 @@ call, the happy path records message/conversation `last_message_at`/timeline
 event, a missing recipient address blocks, and WhatsApp raises. The section-11
 grep gate `tests/unit/test_messaging_is_entry_point.py` keeps adapter access
 inside `app/services/messaging.py` and `app/integrations/`.
+
+Template engine tests: `tests/unit/test_templates.py` renders a fully
+populated context, tolerates placeholder spacing and ignores extra context
+keys, replaces repeated placeholders, reports one missing field only, lists
+every missing field together, treats blank values as missing, rejects
+unknown placeholders, appends the unsubscribe footer to promotional renders
+(text and HTML anchor) and not to transactional ones, escapes
+`<script>`-bearing names in the HTML variant while keeping raw text, renders
+multiline bodies with `<br/>`, proves `append_unsubscribe_text` is
+idempotent, and exercises `render_template` against a model row.
+`tests/integration/test_message_templates_model.py` covers defaults and
+round-trips, the `(name, version)` uniqueness boundary, and the
+channel/category/status check constraints through raw SQL.
 
 Partner ingestion tests (`tests/integration/test_api_ingestion.py`) provision a
 key as admin, reject manager/anon creation, assert the key's source overrides a
