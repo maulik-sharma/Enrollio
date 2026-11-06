@@ -95,6 +95,26 @@ class TemplateStatus(StrEnum):
     APPROVED = "approved"
 
 
+class CampaignStatus(StrEnum):
+    """Lifecycle of one bulk campaign."""
+
+    DRAFT = "draft"
+    SCHEDULED = "scheduled"
+    SENDING = "sending"
+    COMPLETED = "completed"
+    CANCELLED = "cancelled"
+
+
+class CampaignRecipientStatus(StrEnum):
+    """Per-recipient outcome inside one campaign."""
+
+    PENDING = "pending"
+    SENT = "sent"
+    QUEUED = "queued"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+
+
 class MessageDirection(StrEnum):
     """Whether a message left the system or arrived from a provider."""
 

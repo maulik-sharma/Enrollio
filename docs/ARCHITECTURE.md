@@ -621,6 +621,63 @@ Rendering lives in `app/services/templates.py` and is pure:
   (AC4.2). The caller injects the `UNSUBSCRIBE_URL` setting so the renderer
   stays pure and testable.
 
+### Segments and campaigns (M3.5)
+
+Migration `0012` adds `segments` (a unique `name`, an immutable `version`
+counter, a JSONB `filter_definition`, and a `filter_hash` so duplicate
+definitions cannot stack), `campaigns` (channel, template/segment references,
+workflow `status` draft→scheduled→sending→completed/failed, an approval-track
+`approval_status`, and snapshot counters set at launch), and
+`campaign_recipients` (unique `(campaign_id, lead_id)` with `status`,
+`provider_message_id`, and a `reason` per outcome). All three tables delete
+with the cascade chain.
+
+Segment evaluation (`app/services/segments.py`) treats the filter definition
+as untrusted input and compiles it against two closed whitelists (D-070):
+
+- A filter is `{"all": [{"field", "op", "value"}]}` — conditions AND-combine.
+  `field` must be a module-level `FIELD_COLUMNS` entry (lead lifecycle/cycle,
+  student name/email—mapped to `students.email_normalised`, catalogue names,
+  `created_at`); `op` must be one of `eq/neq/in/not_in/contains/starts_with/
+  gt/gte/lt/lte/is_null/is_not_null`. Any other field, operator, or shape
+  raises `SegmentFilterError`, which the API maps to 400.
+- Values bind as parameters only: ILIKE patterns escape `\ % _` with
+  `ESCAPE '\'`, `created_at` must parse as an ISO datetime, and list ops
+  require lists of strings. The Student row inner-joins always; programme,
+  campus, and lead source outer-join only when referenced. The compiled
+  statement eager-loads student/programme/campus/assigned_counsellor because
+  lazy loads crash under asyncio (`MissingGreenlet`).
+
+Campaigns (`app/services/campaigns.py`) reuse the template and messaging
+engines rather than add a second path:
+
+- Creation validates the template exists and is `email`-channelled (WhatsApp
+  raises `WhatsAppNotImplemented`, mapped to 422, until Phase 2), the template
+  channel matches the campaign channel, and the segment exists.
+- `launch_campaign` accepts only draft/scheduled campaigns with an **approved**
+  template (else 409 `InvalidCampaign`). When the segment's lead count exceeds
+  `CAMPAIGN_LAUNCH_APPROVAL_THRESHOLD` (default 500) and the campaign is not
+  already approved, it creates one deduped `campaign_launch` `approval_item`,
+  sets `approval_status=pending`, and returns with zero recipients — nothing
+  is rendered or sent. Otherwise it snapshots the segment's lead ids into
+  `campaign_recipients`, marks the campaign `sending`, and dispatches.
+- Dispatch mode comes from `CAMPAIGN_SEND_MODE` (reuses the import setting
+  enum): `inline` runs `send_campaign_batch` inside the request; `celery`
+  enqueues `send_campaign_batch_task`.
+- Every recipient send re-enters `app/services/messaging.py::send`, so
+  consent, promotional cap, quiet hours, and sensitive-category approvals
+  still apply to bulk sends (the M3.3 grep gate stays green). Per recipient:
+  a render failure marks it `failed` with `missing_field: <names>`, a
+  provider failure marks it `failed` with `provider_error: …`, `sent` copies
+  the provider message id from the Message row, and `queued`/`blocked` copy
+  the `SendResult.reason`. The campaign completes when no recipient row stays
+  pending.
+- Endpoints live under `/api/segments` (create, preview) and
+  `/api/campaigns` (create, preview, launch, report), all declared with
+  `campaigns.manage` so counsellors get 403. Campaign preview renders a
+  1–10 lead sample and fails 422 when nothing matches or placeholders are
+  unsatisfiable; the report returns `total`, `by_status`, and `reasons`.
+
 ## 10. Database migrations
 
 Alembic runs against the async SQLAlchemy engine. The first migration (`0001`)
@@ -631,8 +688,9 @@ Migrations are the only way schema changes are applied; the API container runs
 duplicate candidates; `0007` adds source-scoped hashed API keys (§8); `0008`
 adds the mock email provider's `mock_email_messages` table (§9); `0009` adds
 the messaging schema (§9); `0010` adds the `approval_items` table for M3.3's
-sensitive-send approvals (§9); and `0011` adds `message_templates` for the
-M3.4 template engine (§9). M2.7, M2.8, and M2.10 add no migration; their
+sensitive-send approvals (§9); `0011` adds `message_templates` for the
+M3.4 template engine (§9); and `0012` adds `segments`, `campaigns`, and
+`campaign_recipients` for M3.5 (§9). M2.7, M2.8, and M2.10 add no migration; their
 contracts are recorded in D-056/D-057/D-059, and M2.9 is recorded in D-058. The
 migration test downgrades to base, upgrades to head, and asserts that every
 table disappears again, so every revision must round-trip.
@@ -735,6 +793,26 @@ idempotent, and exercises `render_template` against a model row.
 `tests/integration/test_message_templates_model.py` covers defaults and
 round-trips, the `(name, version)` uniqueness boundary, and the
 channel/category/status check constraints through raw SQL.
+
+Segment and campaign tests: `tests/unit/test_segments_filter.py` compiles the
+whitelist path with `literal_binds` and asserts the literal SQL — lifecycle
+equality, catalog `IN`/`NOT IN`, escaped wildcard ILIKE patterns, `created_at`
+ranges, outer joins for catalogue fields, and the always-present student join;
+it also proves unknown fields (including a `"; DROP TABLE"` probe), unknown
+operators, non-list "in" values, non-ISO datetime ranges, missing values, and
+malformed shapes raise `SegmentFilterError` before any SQL exists.
+`tests/unit/test_campaign_context.py` checks the recipient render context
+populated from eager-loaded relationships and reduced to the fields that
+exist. `tests/integration/test_campaigns_api.py` drives the real app: segment
+create/preview with seeded leads, 400 on rejected filters, counsellor 403 and
+manager 201, an inline launch producing three sent recipients with provider
+ids and a completed report with empty reasons, relaunch 409, per-recipient
+`missing_field` failure beside successful sends, the threshold flow
+(`CAMPAIGN_LAUNCH_APPROVAL_THRESHOLD=2` → one deduped `campaign_launch` item
+with zero recipients, then an approved campaign launching normally), launch of
+a draft-template campaign → 409, unknown campaign → 404, campaign preview
+rendering a sample and failing 422 on unsatisfiable placeholders, a
+whatsapp-channel campaign → 422, and an unknown report → 404.
 
 Partner ingestion tests (`tests/integration/test_api_ingestion.py`) provision a
 key as admin, reject manager/anon creation, assert the key's source overrides a

@@ -140,6 +140,13 @@ class Settings(BaseSettings):
     # Unsubscribe link appended to every rendered promotional message.
     UNSUBSCRIBE_URL: str = "https://enrollio.example/unsubscribe"
 
+    # Campaign launch guard: launches larger than this many recipients need a
+    # prior approval (M4.6 queue) before they may send.
+    CAMPAIGN_LAUNCH_APPROVAL_THRESHOLD: int = 500
+    # inline runs the batch synchronously; celery enqueues the worker task
+    # (M3.6 adds retries and idempotent resume).
+    CAMPAIGN_SEND_MODE: ImportProcessingMode = ImportProcessingMode.inline
+
     # Maximum records accepted in one partner API ingestion batch.
     API_INGESTION_MAX_RECORDS: int = 1000
 

@@ -41,6 +41,9 @@ EXPECTED_TABLES = {
     "messages",
     "message_events",
     "message_templates",
+    "segments",
+    "campaigns",
+    "campaign_recipients",
     "approval_items",
 }
 

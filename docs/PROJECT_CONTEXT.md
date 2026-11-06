@@ -4,8 +4,8 @@
 committing every task. It records what is done, what was decided and why, how the
 project is operated, and what is still open.
 
-- **Last updated:** 2026-11-05, after `M3.4` (template engine)
-- **Current position:** M0 · M1 · M2 complete · M3.1–M3.4 complete → **next task M3.5**
+- **Last updated:** 2026-11-06, after `M3.5` (segments and campaigns)
+- **Current position:** M0 · M1 · M2 complete · M3.1–M3.5 complete → **next task M3.6**
 - **Maintainers:** every contributor, in the same commit as the task
 
 ## 1. How to use this file
@@ -27,7 +27,7 @@ project is operated, and what is still open.
 | M0 Foundation | ✅ Complete | Verified locally against Docker on 2026-11-01; the CI gate ran on GitHub Actions on 2026-11-02 |
 | M1 Identity and RBAC | ✅ Complete | M1.0–M1.5 complete; authenticated shell ships with role-aware navigation |
 | M2 Lead CRM and ingestion | ✅ Complete | M2.1–M2.10 complete; lead management screens ship with import, list, detail, and manual entry |
-| M3 Communication and campaigns | 🚧 In progress | M3.1–M3.4 complete; next M3.5 campaign/segment model and APIs |
+| M3 Communication and campaigns | 🚧 In progress | M3.1–M3.5 complete; next M3.6 Celery batch flush idempotency/retries |
 | M4 Knowledge, RAG, enquiry agent | ⬜ Not started | |
 | M5 Scheduling and assignment | ⬜ Not started | |
 | M6 Lead/conversation intelligence | ⬜ Not started | |
@@ -77,23 +77,26 @@ project is operated, and what is still open.
 | M3.2 Message and conversation data model | ✅ | Migration `0009` adds `conversations` (one per lead/channel, open/closed, `last_message_at`), `messages` (direction, channel, text/HTML, provider id unique per channel, status, intent, nullable `created_by_agent_action_id`), and `message_events` (event type, globally unique `provider_event_id`, `occurred_at`); lead → conversation → message → event deletes cascade, and a duplicate provider event is rejected without applying a second status change |
 | M3.3 Single messaging entry point | ✅ | `app/services/messaging.py::send` is the only call path to a provider adapter, guarded in order by consent → promotional frequency cap (timeline `message_sent` events) → quiet hours (promotional sends queue as `queued` message rows with `next_allowed_at`) → approval (sensitive categories create a pending `approval_items` row, migration `0010`; repeats return the existing pending item). Missing recipient address blocks; a unit grep test keeps every other module away from the adapters |
 | M3.4 Template engine | ✅ | Migration `0011` adds `message_templates` (name, channel, category, version, draft/approved status, subject/body with `{{placeholders}}`, `(name, version)` unique); `app/services/templates.py::render` validates against a placeholder whitelist and lists **all** missing fields in one `TemplateRenderError`, HTML-escapes the HTML variant, and appends the unsubscribe link (text footer + HTML anchor) to promotional renders only. No API surface until M3.5 campaigns wire it to `messaging.send` |
+| M3.5 Segments and campaigns | ✅ | Migration `0012` adds `segments` (JSONB filter, versioned by name), `campaigns` (status, `approval_status`, snapshot audience counters), and `campaign_recipients` (unique `(campaign_id, lead_id)`). `app/services/segments.py` compiles the JSONB `{"all": [...]}` filter into SQLAlchemy against a closed field/op whitelist (`SegmentFilterError` → API 400); `app/services/campaigns.py` creates campaigns (email-only until Phase 2, template must be approved + channel-matched), launches them past a `CAMPAIGN_LAUNCH_APPROVAL_THRESHOLD` approval gate or snapshots recipients and dispatches inline/celery, sends each recipient through `messaging.send` with per-recipient failure reasons, and exposes segment create/preview and campaign create/preview/launch/report APIs under `campaigns.manage` |
 
-### Verification snapshot (2026-11-05, after M3.4)
+### Verification snapshot (2026-11-06, after M3.5)
 
 ```text
 make lint                 pass (ruff, ruff format --check, mypy; ESLint)
-make typecheck            pass (mypy strict; frontend tsc --noEmit)
-make test                 412 backend tests pass (2 opt-in live provider checks skipped),
+make typecheck            pass (mypy strict, 189 files; frontend tsc --noEmit)
+make test                 444 backend tests pass (2 opt-in live provider checks skipped),
                           frontend unchanged since M2.10 (8 tests)
 make test-e2e             6 Playwright tests pass locally with the API on :8000 and
-                          IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3 has no UI change)
-make migrate              pass (0011 applied)
-make migrate-test         pass (0011 applied; migration test upgrades/downgrades;
-                          0010/0011 downgrades re-verified manually)
+                          IMPORT_PROCESSING_MODE=inline (last run for M2.10; M3.5 adds
+                          no UI — M3.9 ships the segment builder and campaign wizard)
+make migrate              pass (0012 applied to dev)
+make migrate-test         pass (0012 applied to test; migration test upgrades/downgrades;
+                          0012 downgrade/upgrade re-verified manually)
 make seed                 pass (3 roles, 17 permissions, 3 demo users, 4 programmes,
                           2 campuses, 4 lead sources; idempotent)
-make smoke                not rerun after M2.3/M2.9 (host port 5432 is occupied by the
-                          local PG 18; Docker changes are storage volume and no new services)
+make smoke                pass (2026-11-06: down -v then up --wait; all 6 services
+                          healthy within the window — the API container also applied
+                          migration 0012 on a fresh volume)
 GET /readyz               200 with PG+Redis up (verified before M2.3)
 GET /healthz              200
 GET localhost:3000        200
@@ -212,6 +215,7 @@ not taken.
 | D-067 | Resend is the second real email adapter. Sending posts to `https://api.resend.com/emails` with a Bearer key and reads the response `id`; metadata becomes Resend tags. Inbound `email.received` webhooks are verified as Svix signatures (`svix-id`, `svix-timestamp`, `svix-signature`, five-minute tolerance), then the adapter fetches `GET /emails/receiving/{id}` for subject, body, and headers because Resend webhooks carry metadata only. `EMAIL_WEBHOOK_SECRET` is the `whsec_...` signing secret for Resend and the Basic-auth password for SendGrid | Resend provides inbound email with a single provider, and fetching the body is the documented flow; implementing the signature check locally keeps `httpx` as the only HTTP dependency and avoids a vendor SDK. The generic email settings mean switching providers changes one enum value | Treating the metadata-only webhook as a full message; skipping Svix verification; importing the Resend SDK into business code |
 | D-068 | M3.3 makes `app/services/messaging.py::send(session, settings, provider, lead=…, channel=…, category=…, content=…, actor=…)` the single path to any provider adapter (enforced by a unit grep test over `app/`). Guard order is consent → promotional frequency cap → quiet hours → approval. Sensitive categories (scholarship, fee, admission offer, deadline change) ride the transactional consent class and require a pending `approval_items` row (`type=message_send`, migration `0010`); a repeat request returns the existing pending item instead of duplicating it. Promotional sends inside quiet hours create a `queued` message row, skip the provider and the `message_sent` timeline event, and return `next_allowed_at`, the window end in `QUIET_HOURS_TIMEZONE`. Missing recipient address blocks with `missing_recipient_address`; non-email channels raise `WhatsAppNotImplemented` until Phase 2 | The plan requires every guard to run for every send and the grep check to hold; counting cap usage from timeline events reuses the append-only audit trail instead of a new counter table; approval-first for sensitive categories means unsent content never touches a provider | Bypassing `send` from campaign or agent code (grep gate fails); recording a `sent` timeline event for a queued or refused send; a second approval item per repeat request; per-lead cap counters that drift from the timeline |
 | D-069 | The M3.4 renderer is pure (`app/services/templates.py::render(subject, body, context, category=…, unsubscribe_url=…)`): it validates a closed placeholder whitelist (unknown `{{…}}` fails like a missing value), collects every missing/unsupported placeholder into one `TemplateRenderError` listing them, HTML-escapes all context values in the derived HTML variant (plain text keeps raw values and is the text/plain part), and appends the unsubscribe footer (text) plus an HTML anchor to promotional renders only. `UNSUBSCRIBE_URL` is a plain setting; the caller injects it so the renderer stays testable | AC5.2 demands no partial sends and per-recipient missing-field reporting; a derived-HTML body guarantees injection safety without trusting template authors; unsubscribe belongs at render time so queued promotional rows (M3.3) already carry it when M3.6 flushes them | Rendering with `str.format` (crashes on stray braces); a template engine that trusts template HTML; per-milestone count of exactly which fields are reported |
+| D-070 | M3.5 segment evaluation is whitelist-only: a filter is `{"all": [{"field","op","value"}]}` (AND-only) where `field` must be one of a closed module-level set (lead + student + catalogue names; `email` maps to `students.email_normalised`), `op` must be one of twelve string/list/range/null operators, and every value is a bound parameter — strings for ILIKE get `\ % _` escaped with `ESCAPE '\'`, `created_at` must be ISO-parseable, and anything else raises `SegmentFilterError` (API 400). The Student row is always inner-joined; catalogue tables outer-join only when referenced; the compiled statement eager-loads student/programme/campus/assigned_counsellor because lazy loads crash under asyncio (`MissingGreenlet`). Campaigns launch through one gate: only draft/scheduled with an approved, channel-matched template; above `CAMPAIGN_LAUNCH_APPROVAL_THRESHOLD` (default 500) the launch creates one deduped `campaign_launch` approval item and stops (no recipients, no sends), otherwise it snapshots leads into `campaign_recipients` and dispatches inline or via Celery per `CAMPAIGN_SEND_MODE`. Every recipient send re-enters `messaging.send` so consent/cap/quiet-hours/approval guards still apply, and outcomes (`sent`/`failed`/`queued`/`blocked` + reason) are per-recipient, never per-campaign | User-provided filter JSON becomes SQL, so the only safe expression set is a whitelist compiled as bound parameters; approval guards large launches before anything is dispatched, and deduping the item stops repeat launches from stacking approvals; reusing `messaging.send` keeps M3.3's guards authoritative for bulk sends and the grep test green | Interpolating filter text into SQL; accepting arbitrary expressions; per-lead approval items for one bulk launch (one launch = one decision); a campaign calling adapters directly |
 
 ## 4. Architecture in one paragraph
 
@@ -358,6 +362,7 @@ These are engineering decisions; product/college questions stay in
 | Q-005 | Should `make dev` eventually run migrations automatically, or stay explicit (`make migrate`)? | M1.1 |
 | Q-006 | ~~Deferred security gate: M1.3's cross-counsellor test needs the `leads` table~~ **Resolved in M2.1:** `test_lead_scope.py` creates real leads for two counsellors and proves 404 cross-scope, 200 own scope, and manager view-all | — |
 | Q-007 | Should the API prevent deactivating or demoting the last active System Admin (and stripping `users.manage`/`roles.manage` from `system_admin`)? | Before a shared deployment (R-008) |
+| Q-008 | M3.5 launch approvals create a `campaign_launch` `approval_items` row and hold the campaign in `approval_status=pending`, but there is no approve/reject endpoint until M4.6 builds the approvals queue — a pending campaign can only be released by editing the database. Until then, treat a pending campaign as terminal for operators and add the decision endpoint before any real deployment | M4.6 approvals queue |
 
 ## 9. Update template
 
@@ -411,3 +416,4 @@ Checklist for every task commit:
 | 2026-11-03 | Resend adapter (M3.1 extension): `POST /emails` sending with tags, Svix signature verification with a five-minute tolerance, `email.received` handling that fetches `/emails/receiving/{id}` for the body, factory selection via `EMAIL_PROVIDER=resend`, shared contract tests across mock/SendGrid/Resend, Resend payload/inbound/signature tests, and opt-in live checks; 360 backend tests pass with 2 live provider checks skipped. |
 | M3.3: migration `0010` adds `approval_items`; `messaging.send` becomes the single provider call path with consent, promotional frequency cap (counted from `message_sent` timeline events), quiet-hours queueing, and pending approvals for sensitive categories; repositories for conversations/messages/approvals/timeline and a unit grep test that keeps adapter access inside the entry point; 391 backend tests pass with 2 live provider checks skipped. |
 | 2026-11-05 | M3.4: migration `0011` adds `message_templates` (unique `(name, version)`, channel/category enums, draft→approved flow); pure renderer validates a placeholder whitelist, lists all missing values in one error, HTML-escapes the HTML variant, and appends the unsubscribe link to promotional renders; `UNSUBSCRIBE_URL` setting added; 412 backend tests pass with 2 live provider checks skipped. |
+| 2026-11-06 | M3.5: migration `0012` adds `segments`, `campaigns`, and `campaign_recipients`; whitelist-based segment filter compilation, campaign create/preview/launch/report APIs under `campaigns.manage`, launch approval threshold (`CAMPAIGN_LAUNCH_APPROVAL_THRESHOLD`, `CAMPAIGN_SEND_MODE` settings), per-recipient sends re-entering `messaging.send`; 444 backend tests pass with 2 live provider checks skipped. |
