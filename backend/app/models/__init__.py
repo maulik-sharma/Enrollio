@@ -5,6 +5,7 @@ from __future__ import annotations
 from app.models.api_key import ApiKey
 from app.models.approval_item import ApprovalItem
 from app.models.base import Base
+from app.models.campaign import Campaign, CampaignRecipient
 from app.models.campus import Campus
 from app.models.consent_record import ConsentRecord
 from app.models.conversation import Conversation
@@ -20,6 +21,7 @@ from app.models.permission import Permission
 from app.models.programme import Programme
 from app.models.refresh_token import RefreshToken
 from app.models.role import Role
+from app.models.segment import Segment
 from app.models.student import Student
 from app.models.timeline_event import TimelineEvent
 from app.models.user import User
@@ -28,7 +30,10 @@ __all__ = [
     "ApiKey",
     "ApprovalItem",
     "Base",
+    "Campaign",
+    "CampaignRecipient",
     "MessageTemplate",
+    "Segment",
     "Campus",
     "ConsentRecord",
     "Conversation",
